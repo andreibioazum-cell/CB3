@@ -1,20 +1,24 @@
- cmake_minimum_required(VERSION 3.10)
-project(CubicBattle3)
+cmake_minimum_required(VERSION 3.22)
+project(CubicBattle)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(SFML 2.6 REQUIRED COMPONENTS graphics window system)
+# Для Android - используем SFML через NDK
+find_package(SFML CONFIG REQUIRED)
 
-add_executable(CubicBattle3
+add_library(cubicbattle SHARED
     main.cpp
     lobby.cpp
     game.cpp
     enemy.cpp
 )
 
-target_link_libraries(CubicBattle3
+target_include_directories(cubicbattle PRIVATE .)
+target_link_libraries(cubicbattle
     sfml-graphics
     sfml-window
     sfml-system
+    log
+    android
 )
