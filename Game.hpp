@@ -4,12 +4,14 @@
 #include "Enemy.hpp"
 
 class Game {
-private:
+public:
     struct Bullet {
-        sf::Vector2f pos, vel;
+        sf::Vector2f pos;
+        sf::Vector2f vel;
         float life = 3.0f;
     };
     
+private:
     sf::RenderWindow* window;
     sf::Texture playerTex, bgTex;
     sf::Sprite player, bg;
