@@ -22,12 +22,32 @@ jobs:
 
       - name: Download SFML for Android
         run: |
-          wget -O sfml-android.zip https://github.com/SFML/SFML/releases/download/2.6.1/SFML-2.6.1-android-aarch64-clang.zip
-          unzip sfml-android.zip -d sfml
-          mkdir -p app/src/main/cpp/sfml/include
-          mkdir -p app/src/main/cpp/sfml/lib
-          cp -r sfml/include/* app/src/main/cpp/sfml/include/
-          cp -r sfml/lib/* app/src/main/cpp/sfml/lib/
+          # Скачиваем SFML исходники и собираем для Android
+          git clone --depth 1 --branch 2.6.1 https://github.com/SFML/SFML.git sfml-src
+          cd sfml-src
+          
+          # Создаем директорию для сборки
+          mkdir -p build-android
+          cd build-android
+          
+          # Настраиваем CMake для Android
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSFML_BUILD_AUDIO=OFF \
+            -DSFML_BUILD_NETWORK=OFF \
+            -DCMAKE_INSTALL_PREFIX=./install
+          
+          # Собираем
+          make -j$(nproc)
+          make install
+          
+          # Копируем собранные файлы в проект
+          mkdir -p $GITHUB_WORKSPACE/app/src/main/cpp/sfml
+          cp -r install/include $GITHUB_WORKSPACE/app/src/main/cpp/sfml/
+          cp -r install/lib $GITHUB_WORKSPACE/app/src/main/cpp/sfml/
 
       - name: Setup Project
         run: |
@@ -107,6 +127,7 @@ jobs:
           public class GameActivity extends Activity implements SurfaceHolder.Callback {
               private SurfaceView surfaceView;
               private boolean running = false;
+              private Thread gameThread;
               
               static {
                   System.loadLibrary("cubicbattle");
@@ -130,8 +151,7 @@ jobs:
                   running = true;
                   nativeInit(holder.getSurface());
                   
-                  // Запускаем игровой цикл в отдельном потоке
-                  new Thread(() -> {
+                  gameThread = new Thread(() -> {
                       long lastTime = System.nanoTime();
                       while (running) {
                           long now = System.nanoTime();
@@ -147,7 +167,8 @@ jobs:
                               Thread.sleep(16);
                           } catch (InterruptedException e) {}
                       }
-                  }).start();
+                  });
+                  gameThread.start();
               }
               
               @Override
@@ -156,6 +177,11 @@ jobs:
               @Override
               public void surfaceDestroyed(SurfaceHolder holder) {
                   running = false;
+                  if (gameThread != null) {
+                      try {
+                          gameThread.join();
+                      } catch (InterruptedException e) {}
+                  }
               }
               
               @Override
@@ -163,11 +189,12 @@ jobs:
                   float x = event.getX();
                   float y = event.getY();
                   
-                  if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                  int action = event.getActionMasked();
+                  if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
                       nativeTouch(x, y, true);
-                  } else if (event.getAction() == MotionEvent.ACTION_UP) {
+                  } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
                       nativeTouch(x, y, false);
-                  } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                  } else if (action == MotionEvent.ACTION_MOVE) {
                       // Для обработки перемещения
                   }
                   
