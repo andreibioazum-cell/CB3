@@ -1,5 +1,5 @@
 #pragma once
-#include <SDL2/SDL.h>
+#include <GLES2/gl2.h>
 #include <vector>
 #include <functional>
 #include <random>
@@ -12,7 +12,6 @@ namespace enemy {
 
 class Enemy {
 private:
-    SDL_Texture* tex;
     float x = 400, y = 300;
     float angle = 0;
     int hp = 5;
@@ -41,12 +40,12 @@ private:
     
 public:
     Enemy();
-    void init(SDL_Renderer* ren);
+    void init();
     void reset();
     void update(float dt, float px, float py, 
                 std::vector<game::Bullet>& bullets,
                 std::function<void(int)> onHit);
-    void draw(SDL_Renderer* ren);
+    void draw();
     bool isAlive() const { return alive; }
 };
 
