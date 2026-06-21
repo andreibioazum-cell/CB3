@@ -4,7 +4,13 @@
 #include <functional>
 #include <random>
 #include <chrono>
-#include "bullet.hpp"
+
+namespace game {
+    class Game;
+    struct Bullet;
+}
+
+namespace enemy {
 
 class Enemy {
 private:
@@ -40,8 +46,10 @@ public:
     Enemy();
     void reset();
     void update(float dt, sf::Vector2f playerPos, 
-                std::vector<Bullet>& bullets,
+                std::vector<game::Bullet>& bullets,
                 std::function<void(int)> onHit);
     void draw(sf::RenderWindow& w);
     bool isAlive() const { return alive; }
 };
+
+} // namespace enemy
