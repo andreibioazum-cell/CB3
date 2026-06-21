@@ -1,5 +1,7 @@
 #include "lobby.hpp"
 
+namespace lobby {
+
 void Lobby::init(sf::RenderWindow& win) {
     window = &win;
     font.loadFromFile("assets/Fredoka-Bold.ttf");
@@ -55,3 +57,5 @@ void Lobby::handleEvent(const sf::Event& e) {
         }
     }
 }
+
+} // namespace lobby
