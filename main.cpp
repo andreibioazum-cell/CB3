@@ -1,85 +1,68 @@
-#include <jni.h>
-#include <android/log.h>
-#include <android/native_window.h>
-#include <android/native_window_jni.h>
-#include <string>
-#include <vector>
-#include <cmath>
+#include <SDL2/SDL.h>
+#include <iostream>
+#include "lobby.hpp"
+#include "game.hpp"
 
-#define LOG_TAG "CubicBattle"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+enum GameState { STATE_LOBBY, STATE_GAME };
+GameState currentState = STATE_LOBBY;
 
-// ============================================================
-// ПРОСТАЯ ИГРА БЕЗ SFML (OpenGL ES)
-// ============================================================
+lobby::Lobby lobby;
+game::Game game;
 
-struct Point {
-    float x, y;
-};
-
-class Lobby {
-public:
-    bool startGame = false;
+int main(int argc, char* argv[]) {
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
     
-    void update() {}
-    void draw() {}
-};
-
-class Enemy {
-public:
-    Point pos = {400, 300};
-    float angle = 0;
-    int hp = 5;
-    bool alive = false;
+    SDL_Window* window = SDL_CreateWindow(
+        "Cubic Battle 3",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        1280, 720,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+    );
     
-    void reset() { alive = false; }
-};
-
-class Game {
-public:
-    Point player = {640, 360};
-    float angle = 0;
-    int hp = 5;
-    Enemy enemy;
-    bool backToLobby = false;
+    SDL_Renderer* renderer = SDL_CreateRenderer(
+        window,
+        -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+    );
     
-    void init() {
-        enemy.reset();
+    lobby.init(renderer);
+    game.init(renderer);
+    
+    bool running = true;
+    Uint32 lastTime = SDL_GetTicks();
+    
+    while (running) {
+        Uint32 currentTime = SDL_GetTicks();
+        float dt = (currentTime - lastTime) / 1000.0f;
+        if (dt > 0.05f) dt = 0.05f;
+        lastTime = currentTime;
+        
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) running = false;
+            if (currentState == STATE_LOBBY) lobby.handleEvent(event);
+            else game.handleEvent(event);
+        }
+        
+        if (currentState == STATE_LOBBY) {
+            if (lobby.update(dt)) currentState = STATE_GAME;
+        } else {
+            game.update(dt);
+            if (game.isBackToLobby()) currentState = STATE_LOBBY;
+        }
+        
+        SDL_SetRenderDrawColor(renderer, 26, 10, 46, 255);
+        SDL_RenderClear(renderer);
+        
+        if (currentState == STATE_LOBBY) lobby.draw(renderer);
+        else game.draw(renderer);
+        
+        SDL_RenderPresent(renderer);
     }
     
-    void update(float dt) {
-        // Простая логика
-    }
-    
-    void draw() {
-        // OpenGL рисование
-    }
-};
-
-Lobby lobby;
-Game game;
-
-// ============================================================
-// JNI ФУНКЦИИ
-// ============================================================
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_cubicbattle_GameActivity_nativeInit(JNIEnv* env, jobject obj) {
-    LOGI("Game initialized!");
-    game.init();
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_cubicbattle_GameActivity_nativeUpdate(JNIEnv* env, jobject obj, jfloat dt) {
-    game.update(dt);
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_com_cubicbattle_GameActivity_nativeGetHP(JNIEnv* env, jobject obj) {
-    return game.hp;
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_cubicbattle_GameActivity_nativeGetTitle(JNIEnv* env, jobject obj) {
-    return env->NewStringUTF("CUBIC BATTLE 3");
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 0;
 }
