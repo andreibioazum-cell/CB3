@@ -1,22 +1,30 @@
 #pragma once
-#include <SDL2/SDL.h>
+#include <GLES2/gl2.h>
 #include <string>
 
 namespace lobby {
 
 class Lobby {
 private:
-    SDL_Renderer* renderer;
     bool startGame = false;
     
-    // Шрифт через SDL_ttf
-    TTF_Font* font = nullptr;
+    // OpenGL ресурсы
+    GLuint program;
+    GLuint vbo;
+    GLuint texture;
+    int screenWidth = 1280;
+    int screenHeight = 720;
+    
+    void createShaderProgram();
+    void createRectangle();
     
 public:
-    void init(SDL_Renderer* ren);
+    void init();
     bool update(float dt);
-    void draw(SDL_Renderer* ren);
-    void handleEvent(const SDL_Event& e);
+    void draw();
+    void handleTouch(float x, float y);
+    bool isStartGame() const { return startGame; }
+    void reset() { startGame = false; }
 };
 
 } // namespace lobby
