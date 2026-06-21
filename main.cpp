@@ -5,8 +5,8 @@
 enum GameState { STATE_LOBBY, STATE_GAME };
 GameState currentState = STATE_LOBBY;
 
-Lobby lobby;
-Game game;
+lobby::Lobby lobby;
+game::Game game;
 
 int main() {
     sf::RenderWindow window(sf::VideoMode(1280, 720), "Cubic Battle 3");
