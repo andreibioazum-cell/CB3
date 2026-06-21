@@ -1,0 +1,340 @@
+name: TasksAI Antigravity Fixed Final
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34 ndk;25.2.9519653 cmake;3.22.1'
+
+      - name: Project Structure
+        run: |
+          mkdir -p app/src/main/cpp app/src/main/java/com/aetherai app/src/main/res/layout app/src/main/res/drawable app/src/main/res/values
+
+      - name: Create C++ Engine (Real-QA Optimized)
+        run: |
+          cat > app/src/main/cpp/transformer.h << 'EOF'
+          #ifndef TRANSFORMER_H
+          #define TRANSFORMER_H
+          #include <vector>
+          #include <string>
+          #include <map>
+          #include <cmath>
+          #include <algorithm>
+
+          class QAEngine {
+          public:
+              float *emb;
+              std::map<std::string, int> word_to_id;
+              std::vector<std::string> id_to_word;
+
+              bool allocate() {
+                  emb = new(std::nothrow) float[30000 * 256]();
+                  return emb != nullptr;
+              }
+
+              int get_id(std::string w) {
+                  if (word_to_id.count(w)) return word_to_id[w];
+                  int id = (int)id_to_word.size();
+                  word_to_id[w] = id;
+                  id_to_word.push_back(w);
+                  return id;
+              }
+
+              void train(int inp, int tar) {
+                  float lr = 0.05f;
+                  int i_ptr = inp * 256;
+                  int t_ptr = tar * 256;
+                  for(int i=0; i<256; i++) {
+                      float diff = emb[i_ptr + i] - emb[t_ptr + i];
+                      emb[i_ptr + i] -= lr * diff; 
+                  }
+              }
+
+              std::string generate_answer() {
+                  if (id_to_word.empty()) return "Я не обучен.";
+                  
+                  // Ищем тег начала ответа (пробуем разные варианты)
+                  int curr_id = -1;
+                  for(int i=0; i<(int)id_to_word.size(); i++) {
+                      if(id_to_word[i] == "a:" || id_to_word[i] == "a") { 
+                          curr_id = i; 
+                          break; 
+                      }
+                  }
+                  
+                  if(curr_id == -1) return "Ошибка: в датасете не найдены теги ответа A:";
+
+                  std::string result = "";
+                  for (int step = 0; step < 50; step++) {
+                      int best_id = -1; float max_sim = -1e10;
+                      for (int next = 0; next < (int)id_to_word.size(); next++) {
+                          // Не даем ИИ предсказывать самого себя или пользователя
+                          if (next == curr_id || id_to_word[next] == "u:" || id_to_word[next] == "a:") continue;
+                          
+                          float sim = 0;
+                          for(int d=0; d<256; d++) sim += emb[curr_id*256+d] * emb[next*256+d];
+                          if (sim > max_sim) { max_sim = sim; best_id = next; }
+                      }
+                      if (best_id == -1) break;
+                      curr_id = best_id;
+                      std::string word = id_to_word[curr_id];
+                      result += word + " ";
+                      if (word == "." || word == "?" || word == "!") break;
+                  }
+                  return result;
+              }
+          };
+          #endif
+          EOF
+
+          cat > app/src/main/cpp/aetherai_jni.cpp << 'EOF'
+          #include <jni.h>
+          #include <string>
+          #include <vector>
+          #include <sstream>
+          #include <regex>
+          #include "transformer.h"
+
+          static QAEngine engine;
+          static std::vector<int> tokens;
+
+          extern "C" JNIEXPORT jstring JNICALL Java_com_aetherai_AIEngine_init(JNIEnv* env, jobject) {
+              return engine.allocate() ? env->NewStringUTF("OK") : env->NewStringUTF("OOM");
+          }
+          extern "C" JNIEXPORT void JNICALL Java_com_aetherai_AIEngine_addText(JNIEnv* env, jobject, jstring text) {
+              const char* c = env->GetStringUTFChars(text, nullptr);
+              std::string s(c);
+              
+              // Превращаем все в нижний регистр
+              for(char &ch : s) ch = (char)tolower(ch);
+              
+              // Отделяем пунктуацию, НО сохраняем теги u: и a:
+              // Сначала временно защищаем теги
+              s = std::regex_replace(s, std::regex("u:"), " __UTAG__ ");
+              s = std::regex_replace(s, std::regex("a:"), " __ATAG__ ");
+              
+              // Разделяем остальную пунктуацию
+              std::regex re("([.,!?();—])");
+              s = std::regex_replace(s, re, " $1 ");
+              
+              // Возвращаем теги
+              s = std::regex_replace(s, std::regex("__UTAG__"), "u:");
+              s = std::regex_replace(s, std::regex("__ATAG__"), "a:");
+              
+              std::stringstream ss(s); std::string w;
+              while(ss >> w) {
+                  tokens.push_back(engine.get_id(w));
+              }
+              env->ReleaseStringUTFChars(text, c);
+          }
+          extern "C" JNIEXPORT void JNICALL Java_com_aetherai_AIEngine_trainStep(JNIEnv* env, jobject, jint i) {
+              if (i >= 0 && i < (int)tokens.size() - 1) {
+                  engine.train(tokens[i], tokens[i+1]);
+              }
+          }
+          extern "C" JNIEXPORT jint JNICALL Java_com_aetherai_AIEngine_getTokenCount(JNIEnv* env, jobject) {
+              return (jint)tokens.size();
+          }
+          extern "C" JNIEXPORT jstring JNICALL Java_com_aetherai_AIEngine_generate(JNIEnv* env, jobject) {
+              return env->NewStringUTF(engine.generate_answer().c_str());
+          }
+          EOF
+
+          cat > app/src/main/cpp/CMakeLists.txt << 'EOF'
+          cmake_minimum_required(VERSION 3.22)
+          project(aetherai)
+          add_library(aetherai SHARED aetherai_jni.cpp)
+          target_link_libraries(aetherai log)
+          EOF
+
+      - name: Create Antigravity UI
+        run: |
+          cat > app/src/main/res/layout/activity_main.xml << 'EOF'
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000000">
+              
+              <LinearLayout android:id="@+id/header" android:layout_width="match_parent" android:layout_height="wrap_content" 
+                  android:orientation="horizontal" android:padding="12dp" android:background="#121212" android:gravity="center">
+                  <Button android:id="@+id/btnTrain" android:layout_width="wrap_content" android:layout_height="40dp" 
+                      android:text="ОБУЧИТЬ" android:textSize="12sp" android:backgroundTint="#FF3B30" android:textColor="#FFF"/>
+                  <Button android:id="@+id/btnLoad" android:layout_width="wrap_content" android:layout_height="40dp" 
+                      android:text="ЗАГРУЗИТЬ" android:textSize="12sp" android:backgroundTint="#3A3A3C" android:textColor="#FFF" android:layout_marginStart="10dp"/>
+              </LinearLayout>
+
+              <ScrollView android:id="@+id/scroll" android:layout_width="match_parent" android:layout_height="match_parent" 
+                  android:layout_below="@id/header" android:layout_above="@+id/inputArea" android:padding="10dp">
+                  <LinearLayout android:id="@+id/chatLayout" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"/>
+              </ScrollView>
+
+              <LinearLayout android:id="@+id/inputArea" android:layout_width="match_parent" android:layout_height="wrap_content" 
+                  android:layout_alignParentBottom="true" android:padding="10dp" android:orientation="horizontal" android:gravity="center_vertical">
+                  <EditText android:id="@+id/input" android:layout_width="0dp" android:layout_height="wrap_content" 
+                      android:layout_weight="1" android:hint="Спроси TasksAI..." android:textColor="#FFF" android:padding="12dp"
+                      android:background="@android:color/transparent" android:textColorHint="#8E8E93"/>
+                  <ImageButton android:id="@+id/send" android:layout_width="48dp" android:layout_height="48dp" 
+                      android:src="@android:drawable/ic_menu_send" android:backgroundTint="#007AFF" android:layout_marginStart="8dp" android:tint="#FFF"/>
+              </LinearLayout>
+          </RelativeLayout>
+          EOF
+
+      - name: Create Java Code
+        run: |
+          cat > app/src/main/java/com/aetherai/AIEngine.java << 'EOF'
+          package com.aetherai;
+          public class AIEngine {
+              static { System.loadLibrary("aetherai"); }
+              public native String init();
+              public native void addText(String text);
+              public native void trainStep(int i);
+              public native int getTokenCount();
+              public native String generate();
+          }
+          EOF
+
+          cat > app/src/main/java/com/aetherai/MainActivity.java << 'EOF'
+          package com.aetherai;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.widget.*;
+          import android.content.Intent;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import java.io.*;
+
+          public class MainActivity extends Activity {
+              AIEngine ai = new AIEngine();
+              LinearLayout chatLayout; EditText input; ScrollView scroll;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  setContentView(R.layout.activity_main);
+                  chatLayout = findViewById(R.id.chatLayout);
+                  input = findViewById(R.id.input);
+                  scroll = findViewById(R.id.scroll);
+
+                  new Thread(() -> ai.init()).start();
+
+                  findViewById(R.id.btnLoad).setOnClickListener(v -> {
+                      Intent it = new Intent(Intent.ACTION_GET_CONTENT);
+                      it.setType("text/plain"); it.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                      startActivityForResult(it, 1);
+                  });
+
+                  findViewById(R.id.btnTrain).setOnClickListener(v -> {
+                      int count = ai.getTokenCount();
+                      if(count == 0) return;
+                      new Thread(() -> {
+                          for(int e=0; e<40; e++) { // 40 эпох для надежности
+                              for(int i=0; i<count-1; i++) ai.trainStep(i);
+                          }
+                          runOnUiThread(() -> addMessage("AI", "Обучение завершено. Теперь яTasksAI!", false));
+                      }).start();
+                  });
+
+                  findViewById(R.id.send).setOnClickListener(v -> {
+                      String q = input.getText().toString();
+                      if(q.isEmpty()) return;
+                      addMessage("User", q, true);
+                      new Thread(() -> {
+                          String a = ai.generate();
+                          runOnUiThread(() -> addMessage("AI", a, false));
+                      }).start();
+                      input.setText("");
+                  });
+              }
+
+              private void addMessage(String sender, String text, boolean isUser) {
+                  TextView tv = new TextView(this);
+                  tv.setText(text); tv.setTextSize(16); tv.setTextColor(0xFFFFFFFF);
+                  tv.setPadding(30, 20, 30, 20);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                  lp.setMargins(0, 10, 0, 10);
+                  lp.gravity = isUser ? Gravity.END : Gravity.START;
+                  tv.setBackgroundColor(isUser ? 0xFF2b5ff1 : 0xFF2c2c2e);
+                  tv.setLayoutParams(lp);
+                  chatLayout.addView(tv);
+                  scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+              }
+
+              @Override
+              protected void onActivityResult(int req, int res, Intent data) {
+                  if (data != null) {
+                      new Thread(() -> {
+                          try {
+                              if (data.getClipData() != null) {
+                                  for (int i=0; i<data.getClipData().getItemCount(); i++) readUri(data.getClipData().getItemAt(i).getUri());
+                              } else if (data.getData() != null) readUri(data.getData());
+                              runOnUiThread(() -> addMessage("AI", "Файлы приняты. Жми ОБУЧИТЬ.", false));
+                          } catch (Exception e) {}
+                      }).start();
+                  }
+              }
+
+              private void readUri(android.net.Uri uri) throws IOException {
+                  InputStream is = getContentResolver().openInputStream(uri);
+                  BufferedReader br = new BufferedReader(new InputStreamReader(is));
+                  String line; while ((line = br.readLine()) != null) ai.addText(line + " ");
+                  is.close();
+              }
+          }
+          EOF
+
+      - name: Project Configs
+        run: |
+          cat > build.gradle << 'EOF'
+          buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          echo "include ':app'" > settings.gradle
+          cat > app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.aetherai'
+              compileSdk 34
+              defaultConfig { applicationId "com.tasksai.pro"; minSdk 26; targetSdk 34; ndk { abiFilters 'arm64-v8a' } }
+              externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="TasksAI Pro" android:largeHeap="true" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Build APK
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          export PATH="$PWD/gradle-8.5/bin:$PATH"
+          gradle wrapper --gradle-version 8.5
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TasksAI-Pro-Fixed
+          path: app/build/outputs/apk/debug/app-debug.apk
