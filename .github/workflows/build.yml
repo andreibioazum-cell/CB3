@@ -1,0 +1,30 @@
+name: Build Cubic Battle 3
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install SFML
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsfml-dev
+    
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake ..
+        make -j$(nproc)
+    
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: CubicBattle3
+        path: build/CubicBattle3
