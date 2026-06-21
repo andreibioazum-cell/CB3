@@ -1,21 +1,23 @@
 #pragma once
-#include <SDL2/SDL.h>
+#include <GLES2/gl2.h>
 #include <vector>
 #include "enemy.hpp"
 
 namespace game {
 
+struct Bullet {
+    float x, y;
+    float vx, vy;
+    float life = 3.0f;
+};
+
 class Game {
-public:
-    struct Bullet {
-        float x, y, vx, vy;
-        float life = 3.0f;
-    };
-    
 private:
-    SDL_Renderer* renderer;
-    SDL_Texture* playerTex;
-    SDL_Texture* bgTex;
+    // OpenGL ресурсы
+    GLuint program;
+    GLuint vbo;
+    GLuint playerVBO;
+    GLuint enemyVBO;
     
     float playerX = 640, playerY = 360;
     float playerAngle = 0;
@@ -36,8 +38,6 @@ private:
         float atkX = 1200, atkY = 640;
         bool atkHold = false;
         bool joyActive = false;
-        int joyId = -1;
-        int atkId = -1;
         float atkPress = 0;
     } controls;
     
@@ -45,14 +45,17 @@ private:
     const int PLAYER_HP_MAX = 5;
     const float BULLET_SPEED = 340 * 1.15f;
     
-    void spawnBullet(float dx, float dy);
-    void drawHPBar(SDL_Renderer* ren, int x, int y, int hp, int max);
+    void createShaderProgram();
+    void createMeshes();
+    void drawRect(float x, float y, float w, float h, float r, float g, float b);
+    void drawCircle(float x, float y, float radius, float r, float g, float b);
+    void drawHPBar(float x, float y, float w, float h, int hp, int max);
     
 public:
-    void init(SDL_Renderer* ren);
+    void init();
     void update(float dt);
-    void draw(SDL_Renderer* ren);
-    void handleEvent(const SDL_Event& e);
+    void draw();
+    void handleTouch(float x, float y, bool pressed);
     bool isBackToLobby() const { return backToLobby; }
     void reset();
 };
