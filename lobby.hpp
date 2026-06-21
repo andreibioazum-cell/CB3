@@ -1,6 +1,8 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 
+namespace lobby {
+
 class Lobby {
 private:
     sf::RenderWindow* window;
@@ -15,3 +17,5 @@ public:
     void draw(sf::RenderWindow& w);
     void handleEvent(const sf::Event& e);
 };
+
+} // namespace lobby
