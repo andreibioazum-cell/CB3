@@ -1,21 +1,22 @@
 #pragma once
-#include <SFML/Graphics.hpp>
+#include <SDL2/SDL.h>
+#include <string>
 
 namespace lobby {
 
 class Lobby {
 private:
-    sf::RenderWindow* window;
-    sf::Font font;
-    sf::Text title, subtitle, playText;
-    sf::RectangleShape playBtn, gradientBg;
+    SDL_Renderer* renderer;
     bool startGame = false;
     
+    // Шрифт через SDL_ttf
+    TTF_Font* font = nullptr;
+    
 public:
-    void init(sf::RenderWindow& win);
+    void init(SDL_Renderer* ren);
     bool update(float dt);
-    void draw(sf::RenderWindow& w);
-    void handleEvent(const sf::Event& e);
+    void draw(SDL_Renderer* ren);
+    void handleEvent(const SDL_Event& e);
 };
 
 } // namespace lobby
