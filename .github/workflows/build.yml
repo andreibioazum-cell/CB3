@@ -26,9 +26,8 @@ jobs:
           mkdir -p app/src/main/java/com/cubicbattle
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/assets
-
-      - name: Copy C++ Source
-        run: |
+          
+          # Копируем все .cpp и .hpp
           cp *.cpp app/src/main/cpp/
           cp *.hpp app/src/main/cpp/
           cp CMakeLists.txt app/src/main/cpp/
@@ -44,18 +43,14 @@ jobs:
           
           public class GameActivity extends Activity {
               static { System.loadLibrary("cubicbattle"); }
-              
               public native void nativeRun();
               
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-                  
                   SurfaceView sv = new SurfaceView(this);
                   sv.getHolder().addCallback(new SurfaceHolder.Callback() {
-                      @Override public void surfaceCreated(SurfaceHolder holder) {
-                          nativeRun();
-                      }
+                      @Override public void surfaceCreated(SurfaceHolder holder) { nativeRun(); }
                       @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
                       @Override public void surfaceDestroyed(SurfaceHolder holder) {}
                   });
@@ -106,6 +101,13 @@ jobs:
               }
           }
           EOF
+
+      - name: Install SDL2 for Android
+        run: |
+          git clone https://github.com/libsdl-org/SDL.git
+          git clone https://github.com/libsdl-org/SDL_image.git
+          git clone https://github.com/libsdl-org/SDL_ttf.git
+          # Тут нужно добавить сборку SDL для Android
 
       - name: Build APK
         run: |
