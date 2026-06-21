@@ -46,8 +46,10 @@ void Game::update(float dt) {
         sf::Vector2f dir = controls.joyStick - controls.joyPos;
         float len = std::sqrt(dir.x*dir.x + dir.y*dir.y);
         if (len > 0) {
-            dir /= len;
-            playerPos += dir * 260.0f * dt;
+            dir.x /= len;
+            dir.y /= len;
+            playerPos.x += dir.x * 260.0f * dt;
+            playerPos.y += dir.y * 260.0f * dt;
             playerAngle = std::atan2(dir.y, dir.x) + 3.14159f/2;
             aimDir = dir;
         }
@@ -55,15 +57,20 @@ void Game::update(float dt) {
     
     // Атака
     controls.atkPress += (controls.atkHold ? 1 : -1) * dt * 12;
-    controls.atkPress = std::max(0.0f, std::min(1.0f, controls.atkPress));
+    if (controls.atkPress > 1) controls.atkPress = 1;
+    if (controls.atkPress < 0) controls.atkPress = 0;
     
     // Камера
-    sf::Vector2f target = playerPos - sf::Vector2f(640, 360);
-    cam += (target - cam) * (1 - std::exp(-dt * 7.3f));
+    sf::Vector2f target;
+    target.x = playerPos.x - 640;
+    target.y = playerPos.y - 360;
+    cam.x += (target.x - cam.x) * (1 - std::exp(-dt * 7.3f));
+    cam.y += (target.y - cam.y) * (1 - std::exp(-dt * 7.3f));
     
     // Пули
     for (auto it = bullets.begin(); it != bullets.end();) {
-        it->pos += it->vel * dt;
+        it->pos.x += it->vel.x * dt;
+        it->pos.y += it->vel.y * dt;
         it->life -= dt;
         if (it->life <= 0) it = bullets.erase(it);
         else ++it;
@@ -110,7 +117,14 @@ void Game::draw(sf::RenderWindow& w) {
     player.setPosition(playerPos);
     player.setRotation(playerAngle * 180 / 3.14159f);
     if (hitTimer > 0) {
-        player.setColor(sf::Color(255, 255 - hitTimer*150, 255 - hitTimer*150));
+        int red = 255;
+        int green = 255 - (int)(hitTimer * 150);
+        int blue = 255 - (int)(hitTimer * 150);
+        if (green < 0) green = 0;
+        if (blue < 0) blue = 0;
+        player.setColor(sf::Color(red, green, blue));
+    } else {
+        player.setColor(sf::Color::White);
     }
     w.draw(player);
     player.setColor(sf::Color::White);
@@ -149,7 +163,10 @@ void Game::drawControls(sf::RenderWindow& w) {
     // Кнопка атаки
     float scale = 1 - controls.atkPress * 0.12f;
     sf::CircleShape atkBtn(52 * scale);
-    atkBtn.setFillColor(sf::Color(140 - controls.atkPress*50, 51, 217 - controls.atkPress*76));
+    int r = 140 - (int)(controls.atkPress * 50);
+    int g = 51;
+    int b = 217 - (int)(controls.atkPress * 76);
+    atkBtn.setFillColor(sf::Color(r, g, b));
     atkBtn.setPosition(controls.atkPos - sf::Vector2f(52*scale, 52*scale));
     w.draw(atkBtn);
     
@@ -173,7 +190,8 @@ void Game::drawControls(sf::RenderWindow& w) {
 void Game::spawnBullet(sf::Vector2f dir) {
     Bullet b;
     b.pos = playerPos;
-    b.vel = dir * BULLET_SPEED;
+    b.vel.x = dir.x * BULLET_SPEED;
+    b.vel.y = dir.y * BULLET_SPEED;
     bullets.push_back(b);
 }
 
@@ -202,7 +220,10 @@ void Game::handleEvent(const sf::Event& e) {
             sf::Vector2f pos(e.touch.x, e.touch.y);
             sf::Vector2f dir = pos - controls.joyPos;
             float len = std::sqrt(dir.x*dir.x + dir.y*dir.y);
-            if (len > 45) dir = dir / len * 45;
+            if (len > 45) {
+                dir.x = dir.x / len * 45;
+                dir.y = dir.y / len * 45;
+            }
             controls.joyStick = controls.joyPos + dir;
         }
     }
