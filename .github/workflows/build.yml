@@ -20,51 +20,178 @@ jobs:
         with:
           packages: 'platform-tools build-tools;34.0.0 platforms;android-34 ndk;25.2.9519653 cmake;3.22.1'
 
+      - name: Download SFML for Android
+        run: |
+          wget -O sfml-android.zip https://github.com/SFML/SFML/releases/download/2.6.1/SFML-2.6.1-android-aarch64-clang.zip
+          unzip sfml-android.zip -d sfml
+          mkdir -p app/src/main/cpp/sfml/include
+          mkdir -p app/src/main/cpp/sfml/lib
+          cp -r sfml/include/* app/src/main/cpp/sfml/include/
+          cp -r sfml/lib/* app/src/main/cpp/sfml/lib/
+
       - name: Setup Project
         run: |
           mkdir -p app/src/main/cpp
           mkdir -p app/src/main/java/com/cubicbattle
-          mkdir -p app/src/main/res/layout
-          mkdir -p app/src/main/assets
           
           # Копируем все .cpp и .hpp
-          cp *.cpp app/src/main/cpp/
-          cp *.hpp app/src/main/cpp/
-          cp CMakeLists.txt app/src/main/cpp/
+          cp *.cpp app/src/main/cpp/ || true
+          cp *.hpp app/src/main/cpp/ || true
 
-      - name: Create Android Files
+      - name: Create CMakeLists.txt for Android
+        run: |
+          cat > app/src/main/cpp/CMakeLists.txt << 'EOF'
+          cmake_minimum_required(VERSION 3.22)
+          project(CubicBattle)
+          
+          set(CMAKE_CXX_STANDARD 17)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          
+          # Путь к SFML
+          set(SFML_DIR ${CMAKE_CURRENT_SOURCE_DIR}/sfml)
+          
+          # Добавляем SFML как статическую библиотеку
+          add_library(sfml-system STATIC IMPORTED)
+          set_target_properties(sfml-system PROPERTIES
+              IMPORTED_LOCATION ${SFML_DIR}/lib/libsfml-system.a
+              INTERFACE_INCLUDE_DIRECTORIES ${SFML_DIR}/include
+          )
+          
+          add_library(sfml-window STATIC IMPORTED)
+          set_target_properties(sfml-window PROPERTIES
+              IMPORTED_LOCATION ${SFML_DIR}/lib/libsfml-window.a
+              INTERFACE_INCLUDE_DIRECTORIES ${SFML_DIR}/include
+          )
+          
+          add_library(sfml-graphics STATIC IMPORTED)
+          set_target_properties(sfml-graphics PROPERTIES
+              IMPORTED_LOCATION ${SFML_DIR}/lib/libsfml-graphics.a
+              INTERFACE_INCLUDE_DIRECTORIES ${SFML_DIR}/include
+          )
+          
+          # Основная библиотека
+          add_library(cubicbattle SHARED
+              main.cpp
+              lobby.cpp
+              game.cpp
+              enemy.cpp
+          )
+          
+          target_include_directories(cubicbattle PRIVATE
+              ${CMAKE_CURRENT_SOURCE_DIR}
+              ${SFML_DIR}/include
+          )
+          
+          target_link_libraries(cubicbattle
+              sfml-graphics
+              sfml-window
+              sfml-system
+              log
+              android
+              EGL
+              GLESv2
+          )
+          EOF
+
+      - name: Create Java Activity
         run: |
           cat > app/src/main/java/com/cubicbattle/GameActivity.java << 'EOF'
           package com.cubicbattle;
+          
           import android.app.Activity;
           import android.os.Bundle;
           import android.view.SurfaceView;
           import android.view.SurfaceHolder;
+          import android.view.MotionEvent;
           
-          public class GameActivity extends Activity {
-              static { System.loadLibrary("cubicbattle"); }
-              public native void nativeRun();
+          public class GameActivity extends Activity implements SurfaceHolder.Callback {
+              private SurfaceView surfaceView;
+              private boolean running = false;
+              
+              static {
+                  System.loadLibrary("cubicbattle");
+              }
+              
+              public native void nativeInit(Object surface);
+              public native void nativeUpdate(float dt);
+              public native void nativeDraw();
+              public native void nativeTouch(float x, float y, boolean pressed);
               
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-                  SurfaceView sv = new SurfaceView(this);
-                  sv.getHolder().addCallback(new SurfaceHolder.Callback() {
-                      @Override public void surfaceCreated(SurfaceHolder holder) { nativeRun(); }
-                      @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
-                      @Override public void surfaceDestroyed(SurfaceHolder holder) {}
-                  });
-                  setContentView(sv);
+                  surfaceView = new SurfaceView(this);
+                  surfaceView.getHolder().addCallback(this);
+                  setContentView(surfaceView);
+              }
+              
+              @Override
+              public void surfaceCreated(SurfaceHolder holder) {
+                  running = true;
+                  nativeInit(holder.getSurface());
+                  
+                  // Запускаем игровой цикл в отдельном потоке
+                  new Thread(() -> {
+                      long lastTime = System.nanoTime();
+                      while (running) {
+                          long now = System.nanoTime();
+                          float dt = (now - lastTime) / 1000000000.0f;
+                          lastTime = now;
+                          
+                          if (dt > 0.05f) dt = 0.05f;
+                          
+                          nativeUpdate(dt);
+                          nativeDraw();
+                          
+                          try {
+                              Thread.sleep(16);
+                          } catch (InterruptedException e) {}
+                      }
+                  }).start();
+              }
+              
+              @Override
+              public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
+              
+              @Override
+              public void surfaceDestroyed(SurfaceHolder holder) {
+                  running = false;
+              }
+              
+              @Override
+              public boolean onTouchEvent(MotionEvent event) {
+                  float x = event.getX();
+                  float y = event.getY();
+                  
+                  if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                      nativeTouch(x, y, true);
+                  } else if (event.getAction() == MotionEvent.ACTION_UP) {
+                      nativeTouch(x, y, false);
+                  } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                      // Для обработки перемещения
+                  }
+                  
+                  return true;
               }
           }
           EOF
 
+      - name: Create Android Manifest
+        run: |
           cat > app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
               package="com.cubicbattle">
-              <application android:label="Cubic Battle 3" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
-                  <activity android:name=".GameActivity" android:exported="true" android:screenOrientation="portrait">
+              <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+              <application 
+                  android:label="Cubic Battle 3" 
+                  android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+                  android:allowBackup="true">
+                  <activity 
+                      android:name=".GameActivity" 
+                      android:exported="true" 
+                      android:screenOrientation="portrait"
+                      android:configChanges="orientation|screenSize">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN"/>
                           <category android:name="android.intent.category.LAUNCHER"/>
@@ -74,52 +201,93 @@ jobs:
           </manifest>
           EOF
 
-      - name: Create Gradle
+      - name: Create Gradle Files
         run: |
           cat > build.gradle << 'EOF'
           buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+              }
           }
-          allprojects { repositories { google(); mavenCentral() } }
+          
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
           EOF
+          
           echo "include ':app'" > settings.gradle
           
           cat > app/build.gradle << 'EOF'
-          plugins { id 'com.android.application' }
+          plugins {
+              id 'com.android.application'
+          }
+          
           android {
               namespace 'com.cubicbattle'
               compileSdk 34
+              
               defaultConfig {
                   applicationId "com.cubicbattle.game"
                   minSdk 26
                   targetSdk 34
-                  ndk { abiFilters 'arm64-v8a' }
+                  versionCode 1
+                  versionName "1.0"
+                  
+                  ndk {
+                      abiFilters 'arm64-v8a'
+                  }
+                  
+                  externalNativeBuild {
+                      cmake {
+                          arguments '-DANDROID_STL=c++_shared'
+                      }
+                  }
               }
+              
               externalNativeBuild {
-                  cmake { path "src/main/cpp/CMakeLists.txt" }
+                  cmake {
+                      path "src/main/cpp/CMakeLists.txt"
+                      version "3.22.1"
+                  }
+              }
+              
+              buildTypes {
+                  debug {
+                      ndk {
+                          debugSymbolLevel 'full'
+                      }
+                  }
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+                  }
               }
           }
           EOF
 
-      - name: Install SDL2 for Android
-        run: |
-          git clone https://github.com/libsdl-org/SDL.git
-          git clone https://github.com/libsdl-org/SDL_image.git
-          git clone https://github.com/libsdl-org/SDL_ttf.git
-          # Тут нужно добавить сборку SDL для Android
-
       - name: Build APK
         run: |
+          # Скачиваем Gradle
           wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
           unzip -q gradle-8.5-bin.zip
           export PATH="$PWD/gradle-8.5/bin:$PATH"
+          
+          # Создаём wrapper
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
+          
+          # Собираем
           ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CubicBattle3-Android
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
