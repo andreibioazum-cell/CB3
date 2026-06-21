@@ -1,4 +1,4 @@
-#include "Lobby.hpp"
+#include "lobby.hpp"
 
 void Lobby::init(sf::RenderWindow& win) {
     window = &win;

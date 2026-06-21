@@ -1,5 +1,5 @@
-#include "Enemy.hpp"
-#include "Game.hpp"
+#include "enemy.hpp"
+#include "game.hpp"
 
 Enemy::Enemy() : rng(std::chrono::steady_clock::now().time_since_epoch().count()) {
     tex.loadFromFile("assets/player.png");
@@ -29,7 +29,7 @@ void Enemy::spawn(sf::Vector2f playerPos) {
 }
 
 void Enemy::update(float dt, sf::Vector2f playerPos, 
-                   std::vector<Game::Bullet>& bullets,
+                   std::vector<Bullet>& bullets,
                    std::function<void(int)> onHit) {
     if (!alive) {
         respawnTimer -= dt;

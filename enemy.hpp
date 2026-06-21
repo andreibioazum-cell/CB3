@@ -4,8 +4,7 @@
 #include <functional>
 #include <random>
 #include <chrono>
-
-class Game;  // Forward declaration
+#include "bullet.hpp"
 
 class Enemy {
 private:
@@ -41,7 +40,7 @@ public:
     Enemy();
     void reset();
     void update(float dt, sf::Vector2f playerPos, 
-                std::vector<Game::Bullet>& bullets,
+                std::vector<Bullet>& bullets,
                 std::function<void(int)> onHit);
     void draw(sf::RenderWindow& w);
     bool isAlive() const { return alive; }

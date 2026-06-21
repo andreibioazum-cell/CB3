@@ -1,15 +1,11 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 #include <vector>
-#include "Enemy.hpp"
+#include "bullet.hpp"
+#include "enemy.hpp"
 
 class Game {
 public:
-    struct Bullet {
-        sf::Vector2f pos;
-        sf::Vector2f vel;
-        float life = 3.0f;
-    };
     
 private:
     sf::RenderWindow* window;

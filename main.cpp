@@ -1,6 +1,6 @@
 #include <SFML/Graphics.hpp>
-#include "Lobby.hpp"
-#include "Game.hpp"
+#include "lobby.hpp"
+#include "game.hpp"
 
 enum GameState { STATE_LOBBY, STATE_GAME };
 GameState currentState = STATE_LOBBY;

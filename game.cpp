@@ -1,4 +1,4 @@
-#include "Game.hpp"
+#include "game.hpp"
 #include <cmath>
 
 void Game::init(sf::RenderWindow& win) {

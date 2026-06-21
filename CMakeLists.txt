@@ -7,10 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(SFML 2.6 REQUIRED COMPONENTS graphics window system)
 
 add_executable(CubicBattle3
-    Main.cpp
-    Lobby.cpp
-    Game.cpp
-    Enemy.cpp
+    main.cpp
+    lobby.cpp
+    game.cpp
+    enemy.cpp
 )
 
 target_link_libraries(CubicBattle3
