@@ -1,69 +1,128 @@
 #include "lobby.hpp"
-#include <SDL2/SDL_ttf.h>
+#include <android/log.h>
+#include <cmath>
+
+#define LOG_TAG "Lobby"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 namespace lobby {
 
-void Lobby::init(SDL_Renderer* ren) {
-    renderer = ren;
-    TTF_Init();
-    font = TTF_OpenFont("assets/Fredoka-Bold.ttf", 64);
+// ============================================================
+// ВЕРШИННЫЙ ШЕЙДЕР
+// ============================================================
+const char* vertexShader = 
+    "attribute vec3 aPos;"
+    "attribute vec2 aTexCoord;"
+    "uniform mat4 uTransform;"
+    "varying vec2 vTexCoord;"
+    "void main() {"
+    "   gl_Position = uTransform * vec4(aPos, 1.0);"
+    "   vTexCoord = aTexCoord;"
+    "}";
+
+// ============================================================
+// ФРАГМЕНТНЫЙ ШЕЙДЕР
+// ============================================================
+const char* fragmentShader = 
+    "precision highp float;"
+    "uniform vec4 uColor;"
+    "varying vec2 vTexCoord;"
+    "void main() {"
+    "   gl_FragColor = uColor;"
+    "}";
+
+void Lobby::createShaderProgram() {
+    // Создаём шейдеры
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vertexShader, nullptr);
+    glCompileShader(vs);
+    
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fragmentShader, nullptr);
+    glCompileShader(fs);
+    
+    program = glCreateProgram();
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    glLinkProgram(program);
+    
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    
+    LOGI("Shader program created!");
+}
+
+void Lobby::createRectangle() {
+    // Квадрат для кнопки Play
+    float vertices[] = {
+        // x, y, u, v
+        -0.2f, -0.1f, 0.0f, 0.0f,
+         0.2f, -0.1f, 1.0f, 0.0f,
+         0.2f,  0.1f, 1.0f, 1.0f,
+        -0.2f,  0.1f, 0.0f, 1.0f
+    };
+    
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+}
+
+void Lobby::init() {
+    createShaderProgram();
+    createRectangle();
+    LOGI("Lobby initialized!");
 }
 
 bool Lobby::update(float dt) {
     return startGame;
 }
 
-void Lobby::draw(SDL_Renderer* ren) {
-    // Градиентный фон
-    SDL_SetRenderDrawColor(ren, 115, 38, 204, 255);
-    SDL_RenderFillRect(ren, nullptr);
+void Lobby::draw() {
+    glUseProgram(program);
     
-    if (!font) return;
+    // Матрица трансформации (проекция ортогональная)
+    float ortho[16] = {
+        2.0f/1280, 0, 0, 0,
+        0, -2.0f/720, 0, 0,
+        0, 0, 1, 0,
+        -1, 1, 0, 1
+    };
     
-    // Заголовок
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Surface* surf = TTF_RenderText_Solid(font, "CUBIC BATTLE", white);
-    SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
+    GLint transformLoc = glGetUniformLocation(program, "uTransform");
+    glUniformMatrix4fv(transformLoc, 1, GL_FALSE, ortho);
     
-    SDL_Rect rect = {640 - surf->w/2, 200, surf->w, surf->h};
-    SDL_RenderCopy(ren, tex, nullptr, &rect);
+    // Рисуем фон (фиолетовый)
+    glClearColor(0.1f, 0.05f, 0.2f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
     
-    SDL_DestroyTexture(tex);
-    SDL_FreeSurface(surf);
+    // Рисуем заголовок
+    GLint colorLoc = glGetUniformLocation(program, "uColor");
     
     // Кнопка Play
-    SDL_SetRenderDrawColor(ren, 140, 51, 217, 255);
-    SDL_Rect btn = {530, 400, 220, 75};
-    SDL_RenderFillRect(ren, &btn);
+    glUniform4f(colorLoc, 140.0f/255, 51.0f/255, 217.0f/255, 1.0f);
+    GLint posLoc = glGetAttribLocation(program, "aPos");
+    GLint texLoc = glGetAttribLocation(program, "aTexCoord");
     
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_RenderDrawRect(ren, &btn);
+    glEnableVertexAttribArray(posLoc);
+    glEnableVertexAttribArray(texLoc);
     
-    TTF_Font* smallFont = TTF_OpenFont("assets/Fredoka-Bold.ttf", 30);
-    surf = TTF_RenderText_Solid(smallFont, "PLAY", white);
-    tex = SDL_CreateTextureFromSurface(ren, surf);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 4*sizeof(float), 0);
+    glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 4*sizeof(float), (void*)(2*sizeof(float)));
     
-    rect = {640 - surf->w/2, 420, surf->w, surf->h};
-    SDL_RenderCopy(ren, tex, nullptr, &rect);
-    
-    SDL_DestroyTexture(tex);
-    SDL_FreeSurface(surf);
-    TTF_CloseFont(smallFont);
+    // Рисуем кнопку в центре
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
-void Lobby::handleEvent(const SDL_Event& e) {
-    if (e.type == SDL_MOUSEBUTTONDOWN) {
-        int x = e.button.x, y = e.button.y;
-        if (x > 530 && x < 750 && y > 400 && y < 475) {
-            startGame = true;
-        }
-    }
-    if (e.type == SDL_FINGERDOWN) {
-        float x = e.tfinger.x * 1280;
-        float y = e.tfinger.y * 720;
-        if (x > 530 && x < 750 && y > 400 && y < 475) {
-            startGame = true;
-        }
+void Lobby::handleTouch(float x, float y) {
+    // Нормализуем координаты
+    float nx = (x / screenWidth) * 2 - 1;
+    float ny = -(y / screenHeight) * 2 + 1;
+    
+    // Проверяем попадание в кнопку Play
+    if (nx > -0.2f && nx < 0.2f && ny > -0.1f && ny < 0.1f) {
+        startGame = true;
+        LOGI("Play button pressed!");
     }
 }
 
