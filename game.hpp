@@ -1,5 +1,5 @@
 #pragma once
-#include <SFML/Graphics.hpp>
+#include <SDL2/SDL.h>
 #include <vector>
 #include "enemy.hpp"
 
@@ -8,19 +8,16 @@ namespace game {
 class Game {
 public:
     struct Bullet {
-        sf::Vector2f pos;
-        sf::Vector2f vel;
+        float x, y, vx, vy;
         float life = 3.0f;
     };
     
 private:
-    sf::RenderWindow* window;
-    sf::Texture playerTex, bgTex;
-    sf::Sprite player, bg;
-    sf::Font font;
-    sf::Text hpText;
+    SDL_Renderer* renderer;
+    SDL_Texture* playerTex;
+    SDL_Texture* bgTex;
     
-    sf::Vector2f playerPos = {640, 360};
+    float playerX = 640, playerY = 360;
     float playerAngle = 0;
     int hp = 5;
     float hitTimer = 0;
@@ -30,13 +27,13 @@ private:
     std::vector<Bullet> bullets;
     enemy::Enemy enemy;
     
-    sf::Vector2f cam = {0, 0};
-    sf::Vector2f aimDir = {0, -1};
+    float camX = 0, camY = 0;
+    float aimX = 0, aimY = -1;
     
     struct Controls {
-        sf::Vector2f joyPos = {80, 640};
-        sf::Vector2f joyStick = {80, 640};
-        sf::Vector2f atkPos = {1200, 640};
+        float joyX = 80, joyY = 640;
+        float joyStickX = 80, joyStickY = 640;
+        float atkX = 1200, atkY = 640;
         bool atkHold = false;
         bool joyActive = false;
         int joyId = -1;
@@ -48,15 +45,14 @@ private:
     const int PLAYER_HP_MAX = 5;
     const float BULLET_SPEED = 340 * 1.15f;
     
-    void spawnBullet(sf::Vector2f dir);
-    void drawHPBar(sf::RenderWindow& w, sf::Vector2f pos, int hp, int max);
-    void drawControls(sf::RenderWindow& w);
+    void spawnBullet(float dx, float dy);
+    void drawHPBar(SDL_Renderer* ren, int x, int y, int hp, int max);
     
 public:
-    void init(sf::RenderWindow& win);
+    void init(SDL_Renderer* ren);
     void update(float dt);
-    void draw(sf::RenderWindow& w);
-    void handleEvent(const sf::Event& e);
+    void draw(SDL_Renderer* ren);
+    void handleEvent(const SDL_Event& e);
     bool isBackToLobby() const { return backToLobby; }
     void reset();
 };
