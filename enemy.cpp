@@ -1,6 +1,8 @@
 #include "enemy.hpp"
 #include "game.hpp"
 
+namespace enemy {
+
 Enemy::Enemy() : rng(std::chrono::steady_clock::now().time_since_epoch().count()) {
     tex.loadFromFile("assets/player.png");
     sprite.setTexture(tex);
@@ -29,7 +31,7 @@ void Enemy::spawn(sf::Vector2f playerPos) {
 }
 
 void Enemy::update(float dt, sf::Vector2f playerPos, 
-                   std::vector<Bullet>& bullets,
+                   std::vector<game::Bullet>& bullets,
                    std::function<void(int)> onHit) {
     if (!alive) {
         respawnTimer -= dt;
@@ -111,9 +113,7 @@ void Enemy::draw(sf::RenderWindow& w) {
     if (hitTimer > 0) {
         int green = 255 - (int)(hitTimer * 127);
         int blue = 255 - (int)(hitTimer * 127);
-        if (green < 0) green = 0;
-        if (blue < 0) blue = 0;
-        sprite.setColor(sf::Color(255, green, blue));
+        sprite.setColor(sf::Color(255, std::max(0, green), std::max(0, blue)));
     } else {
         sprite.setColor(sf::Color::White);
     }
@@ -131,3 +131,5 @@ void Enemy::draw(sf::RenderWindow& w) {
     hpBar.setPosition(pos.x - 28, pos.y - 45);
     w.draw(hpBar);
 }
+
+} // namespace enemy
