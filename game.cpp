@@ -1,6 +1,8 @@
 #include "game.hpp"
 #include <cmath>
 
+namespace game {
+
 void Game::init(sf::RenderWindow& win) {
     window = &win;
     
@@ -57,8 +59,7 @@ void Game::update(float dt) {
     
     // Атака
     controls.atkPress += (controls.atkHold ? 1 : -1) * dt * 12;
-    if (controls.atkPress > 1) controls.atkPress = 1;
-    if (controls.atkPress < 0) controls.atkPress = 0;
+    controls.atkPress = std::max(0.0f, std::min(1.0f, controls.atkPress));
     
     // Камера
     sf::Vector2f target;
@@ -117,12 +118,9 @@ void Game::draw(sf::RenderWindow& w) {
     player.setPosition(playerPos);
     player.setRotation(playerAngle * 180 / 3.14159f);
     if (hitTimer > 0) {
-        int red = 255;
         int green = 255 - (int)(hitTimer * 150);
         int blue = 255 - (int)(hitTimer * 150);
-        if (green < 0) green = 0;
-        if (blue < 0) blue = 0;
-        player.setColor(sf::Color(red, green, blue));
+        player.setColor(sf::Color(255, std::max(0, green), std::max(0, blue)));
     } else {
         player.setColor(sf::Color::White);
     }
@@ -164,9 +162,8 @@ void Game::drawControls(sf::RenderWindow& w) {
     float scale = 1 - controls.atkPress * 0.12f;
     sf::CircleShape atkBtn(52 * scale);
     int r = 140 - (int)(controls.atkPress * 50);
-    int g = 51;
     int b = 217 - (int)(controls.atkPress * 76);
-    atkBtn.setFillColor(sf::Color(r, g, b));
+    atkBtn.setFillColor(sf::Color(r, 51, b));
     atkBtn.setPosition(controls.atkPos - sf::Vector2f(52*scale, 52*scale));
     w.draw(atkBtn);
     
@@ -250,3 +247,5 @@ void Game::handleEvent(const sf::Event& e) {
         controls.joyStick = controls.joyPos;
     }
 }
+
+} // namespace game
