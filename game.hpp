@@ -1,11 +1,17 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 #include <vector>
-#include "bullet.hpp"
 #include "enemy.hpp"
+
+namespace game {
 
 class Game {
 public:
+    struct Bullet {
+        sf::Vector2f pos;
+        sf::Vector2f vel;
+        float life = 3.0f;
+    };
     
 private:
     sf::RenderWindow* window;
@@ -22,7 +28,7 @@ private:
     bool backToLobby = false;
     
     std::vector<Bullet> bullets;
-    Enemy enemy;
+    enemy::Enemy enemy;
     
     sf::Vector2f cam = {0, 0};
     sf::Vector2f aimDir = {0, -1};
@@ -54,3 +60,5 @@ public:
     bool isBackToLobby() const { return backToLobby; }
     void reset();
 };
+
+} // namespace game
