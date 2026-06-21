@@ -1,14 +1,19 @@
 #include "enemy.hpp"
-#include "game.hpp"
+#include <cmath>
+#include <SDL2/SDL_image.h>
 
 namespace enemy {
 
 Enemy::Enemy() : rng(std::chrono::steady_clock::now().time_since_epoch().count()) {
-    tex.loadFromFile("assets/player.png");
-    sprite.setTexture(tex);
-    sprite.setOrigin(27.5f, 27.5f);
-    sprite.setScale(2, 2);
     reset();
+}
+
+void Enemy::init(SDL_Renderer* ren) {
+    SDL_Surface* surf = IMG_Load("assets/player.png");
+    if (surf) {
+        tex = SDL_CreateTextureFromSurface(ren, surf);
+        SDL_FreeSurface(surf);
+    }
 }
 
 void Enemy::reset() {
@@ -17,38 +22,32 @@ void Enemy::reset() {
     hp = MAX_HP;
 }
 
-void Enemy::spawn(sf::Vector2f playerPos) {
+void Enemy::spawn(float px, float py) {
     float minR = std::min(1280.0f, 720.0f) * 0.30f;
     float maxR = std::min(1280.0f, 720.0f) * 0.45f;
-    float angle = std::uniform_real_distribution<float>(0, 6.28319f)(rng);
+    float a = std::uniform_real_distribution<float>(0, 6.28319f)(rng);
     float dist = minR + std::uniform_real_distribution<float>(0, 1)(rng) * (maxR - minR);
-    pos.x = playerPos.x + std::cos(angle) * dist;
-    pos.y = playerPos.y + std::sin(angle) * dist;
+    x = px + cos(a) * dist;
+    y = py + sin(a) * dist;
     alive = true;
     hp = MAX_HP;
     state = WANDER;
-    attackCooldown = 0;
 }
 
-void Enemy::update(float dt, sf::Vector2f playerPos, 
+void Enemy::update(float dt, float px, float py, 
                    std::vector<game::Bullet>& bullets,
                    std::function<void(int)> onHit) {
     if (!alive) {
         respawnTimer -= dt;
-        if (respawnTimer <= 0) spawn(playerPos);
+        if (respawnTimer <= 0) spawn(px, py);
         return;
     }
     
-    sf::Vector2f dir;
-    dir.x = playerPos.x - pos.x;
-    dir.y = playerPos.y - pos.y;
-    float dist = std::sqrt(dir.x*dir.x + dir.y*dir.y);
-    if (dist > 0) {
-        dir.x /= dist;
-        dir.y /= dist;
-    }
+    float dx = px - x;
+    float dy = py - y;
+    float dist = sqrt(dx*dx + dy*dy);
+    if (dist > 0) { dx /= dist; dy /= dist; }
     
-    // AI
     if (dist < SIGHT) {
         if (dist > ATTACK_RANGE) state = CHASE;
         else if (dist < KEEP_DIST) state = RETREAT;
@@ -57,13 +56,12 @@ void Enemy::update(float dt, sf::Vector2f playerPos,
         state = WANDER;
     }
     
-    // Движение
     if (state == CHASE) {
-        pos.x += dir.x * SPEED * dt;
-        pos.y += dir.y * SPEED * dt;
+        x += dx * SPEED * dt;
+        y += dy * SPEED * dt;
     } else if (state == RETREAT) {
-        pos.x -= dir.x * SPEED * 0.8f * dt;
-        pos.y -= dir.y * SPEED * 0.8f * dt;
+        x -= dx * SPEED * 0.8f * dt;
+        y -= dy * SPEED * 0.8f * dt;
     } else if (state == ATTACK) {
         attackCooldown -= dt;
         if (attackCooldown <= 0) {
@@ -75,61 +73,23 @@ void Enemy::update(float dt, sf::Vector2f playerPos,
         if (wanderTimer <= 0) {
             wanderTimer = 1 + std::uniform_real_distribution<float>(0, 2)(rng);
             float a = std::uniform_real_distribution<float>(0, 6.28319f)(rng);
-            wanderDir.x = std::cos(a);
-            wanderDir.y = std::sin(a);
+            wanderDX = cos(a);
+            wanderDY = sin(a);
         }
-        pos.x += wanderDir.x * SPEED * 0.35f * dt;
-        pos.y += wanderDir.y * SPEED * 0.35f * dt;
+        x += wanderDX * SPEED * 0.35f * dt;
+        y += wanderDY * SPEED * 0.35f * dt;
     }
     
-    angle = std::atan2(dir.y, dir.x) + 3.14159f/2;
+    angle = atan2(dy, dx) + 3.14159f/2;
     hitTimer = std::max(0.0f, hitTimer - dt * 3);
-    
-    // Попадания
-    for (auto it = bullets.begin(); it != bullets.end();) {
-        sf::Vector2f diff;
-        diff.x = it->pos.x - pos.x;
-        diff.y = it->pos.y - pos.y;
-        if (std::sqrt(diff.x*diff.x + diff.y*diff.y) < SIZE * 0.55f) {
-            hp--;
-            hitTimer = 1;
-            it = bullets.erase(it);
-            if (hp <= 0) {
-                alive = false;
-                respawnTimer = RESPAWN_TIME;
-                return;
-            }
-        } else {
-            ++it;
-        }
-    }
 }
 
-void Enemy::draw(sf::RenderWindow& w) {
-    if (!alive) return;
+void Enemy::draw(SDL_Renderer* ren) {
+    if (!alive || !tex) return;
     
-    sprite.setPosition(pos);
-    sprite.setRotation(angle * 180 / 3.14159f);
-    if (hitTimer > 0) {
-        int green = 255 - (int)(hitTimer * 127);
-        int blue = 255 - (int)(hitTimer * 127);
-        sprite.setColor(sf::Color(255, std::max(0, green), std::max(0, blue)));
-    } else {
-        sprite.setColor(sf::Color::White);
-    }
-    w.draw(sprite);
-    sprite.setColor(sf::Color::White);
-    
-    // HP бар
-    sf::RectangleShape bg({56, 8});
-    bg.setFillColor(sf::Color(0,0,0,128));
-    bg.setPosition(pos.x - 28, pos.y - 45);
-    w.draw(bg);
-    
-    sf::RectangleShape hpBar({56 * (float)hp/MAX_HP, 8});
-    hpBar.setFillColor(sf::Color(230, 51, 51));
-    hpBar.setPosition(pos.x - 28, pos.y - 45);
-    w.draw(hpBar);
+    SDL_Rect rect = {(int)(x - 27.5f), (int)(y - 27.5f), 55, 55};
+    SDL_RenderCopyEx(ren, tex, nullptr, &rect, 
+                     angle * 180 / 3.14159f, nullptr, SDL_FLIP_NONE);
 }
 
 } // namespace enemy
