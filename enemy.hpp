@@ -1,12 +1,10 @@
 #pragma once
-#include <SFML/Graphics.hpp>
+#include <SDL2/SDL.h>
 #include <vector>
 #include <functional>
 #include <random>
-#include <chrono>
 
 namespace game {
-    class Game;
     struct Bullet;
 }
 
@@ -14,9 +12,8 @@ namespace enemy {
 
 class Enemy {
 private:
-    sf::Texture tex;
-    sf::Sprite sprite;
-    sf::Vector2f pos;
+    SDL_Texture* tex;
+    float x = 400, y = 300;
     float angle = 0;
     int hp = 5;
     float hitTimer = 0;
@@ -27,7 +24,7 @@ private:
     enum State { WANDER, CHASE, RETREAT, ATTACK };
     State state = WANDER;
     float wanderTimer = 0;
-    sf::Vector2f wanderDir;
+    float wanderDX = 0, wanderDY = 0;
     
     const float SIZE = 55;
     const float SPEED = 140;
@@ -40,15 +37,16 @@ private:
     const int DAMAGE = 1;
     
     std::mt19937 rng;
-    void spawn(sf::Vector2f playerPos);
+    void spawn(float px, float py);
     
 public:
     Enemy();
+    void init(SDL_Renderer* ren);
     void reset();
-    void update(float dt, sf::Vector2f playerPos, 
+    void update(float dt, float px, float py, 
                 std::vector<game::Bullet>& bullets,
                 std::function<void(int)> onHit);
-    void draw(sf::RenderWindow& w);
+    void draw(SDL_Renderer* ren);
     bool isAlive() const { return alive; }
 };
 
