@@ -1,68 +1,110 @@
-#include <SDL2/SDL.h>
-#include <iostream>
+#include <jni.h>
+#include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
+#include <string>
 #include "lobby.hpp"
 #include "game.hpp"
 
-enum GameState { STATE_LOBBY, STATE_GAME };
-GameState currentState = STATE_LOBBY;
+#define LOG_TAG "CubicBattle"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+// ============================================================
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+// ============================================================
+
+EGLDisplay display = EGL_NO_DISPLAY;
+EGLSurface surface = EGL_NO_SURFACE;
+EGLContext context = EGL_NO_CONTEXT;
+ANativeWindow* nativeWindow = nullptr;
 
 lobby::Lobby lobby;
 game::Game game;
 
-int main(int argc, char* argv[]) {
-    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+enum GameState { STATE_LOBBY, STATE_GAME };
+GameState currentState = STATE_LOBBY;
+
+// ============================================================
+// OPENGL INIT
+// ============================================================
+
+bool initOpenGL(ANativeWindow* window) {
+    nativeWindow = window;
     
-    SDL_Window* window = SDL_CreateWindow(
-        "Cubic Battle 3",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        1280, 720,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-    );
+    display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (display == EGL_NO_DISPLAY) return false;
     
-    SDL_Renderer* renderer = SDL_CreateRenderer(
-        window,
-        -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
-    );
+    EGLint major, minor;
+    if (!eglInitialize(display, &major, &minor)) return false;
     
-    lobby.init(renderer);
-    game.init(renderer);
+    EGLint attribs[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_BLUE_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_RED_SIZE, 8,
+        EGL_NONE
+    };
     
-    bool running = true;
-    Uint32 lastTime = SDL_GetTicks();
+    EGLConfig config;
+    EGLint numConfigs;
+    if (!eglChooseConfig(display, attribs, &config, 1, &numConfigs)) return false;
     
-    while (running) {
-        Uint32 currentTime = SDL_GetTicks();
-        float dt = (currentTime - lastTime) / 1000.0f;
-        if (dt > 0.05f) dt = 0.05f;
-        lastTime = currentTime;
-        
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running = false;
-            if (currentState == STATE_LOBBY) lobby.handleEvent(event);
-            else game.handleEvent(event);
-        }
-        
-        if (currentState == STATE_LOBBY) {
-            if (lobby.update(dt)) currentState = STATE_GAME;
-        } else {
-            game.update(dt);
-            if (game.isBackToLobby()) currentState = STATE_LOBBY;
-        }
-        
-        SDL_SetRenderDrawColor(renderer, 26, 10, 46, 255);
-        SDL_RenderClear(renderer);
-        
-        if (currentState == STATE_LOBBY) lobby.draw(renderer);
-        else game.draw(renderer);
-        
-        SDL_RenderPresent(renderer);
+    EGLint contextAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_NONE
+    };
+    
+    context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
+    if (context == EGL_NO_CONTEXT) return false;
+    
+    surface = eglCreateWindowSurface(display, config, window, nullptr);
+    if (surface == EGL_NO_SURFACE) return false;
+    
+    if (!eglMakeCurrent(display, surface, surface, context)) return false;
+    
+    LOGI("OpenGL ES 2.0 initialized!");
+    return true;
+}
+
+// ============================================================
+// JNI ФУНКЦИИ
+// ============================================================
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeInit(JNIEnv* env, jobject obj, jobject surface) {
+    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+    
+    if (!initOpenGL(window)) {
+        LOGI("Failed to init OpenGL!");
+        return;
     }
     
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return 0;
+    lobby.init();
+    game.init();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeUpdate(JNIEnv* env, jobject obj, jfloat dt) {
+    if (currentState == STATE_LOBBY) {
+        if (lobby.update(dt)) currentState = STATE_GAME;
+    } else {
+        game.update(dt);
+        if (game.isBackToLobby()) currentState = STATE_LOBBY;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeDraw(JNIEnv* env, jobject obj) {
+    glClearColor(0.1f, 0.05f, 0.2f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    
+    if (currentState == STATE_LOBBY) {
+        lobby.draw();
+    } else {
+        game.draw();
+    }
+    
+    eglSwapBuffers(display, surface);
 }
