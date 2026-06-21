@@ -15,10 +15,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools build-tools;34.0.0 platforms;android-34 ndk;27.3.13750704 cmake;3.22.1'
+      - name: Setup Android SDK manually
+        run: |
+          # Скачиваем command line tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q commandlinetools-linux-9477386_latest.zip
+          mkdir -p android-sdk/cmdline-tools
+          mv cmdline-tools android-sdk/cmdline-tools/latest
+          
+          # Устанавливаем переменные
+          export ANDROID_SDK_ROOT=$PWD/android-sdk
+          export ANDROID_HOME=$PWD/android-sdk
+          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
+          
+          # Устанавливаем SDK и NDK
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653" "cmake;3.22.1"
+          
+          # Сохраняем пути для следующих шагов
+          echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$PWD/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$PWD/android-sdk/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "PATH=$PATH:$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_ENV
 
       - name: Setup Project
         run: |
@@ -29,7 +47,7 @@ jobs:
           cp *.cpp app/src/main/cpp/ || true
           cp *.hpp app/src/main/cpp/ || true
 
-      - name: Create CMakeLists.txt for Android (no SFML)
+      - name: Create CMakeLists.txt for Android
         run: |
           cat > app/src/main/cpp/CMakeLists.txt << 'EOF'
           cmake_minimum_required(VERSION 3.22)
@@ -56,22 +74,6 @@ jobs:
               EGL
               GLESv2
           )
-          EOF
-
-      - name: Fix C++ files - remove SFML includes
-        run: |
-          # Удаляем SFML из controls.hpp
-          cat > app/src/main/cpp/controls.hpp << 'EOF'
-          #pragma once
-
-          struct Controls {
-              float joyX = 80, joyY = 640;
-              float joyStickX = 80, joyStickY = 640;
-              float atkX = 1200, atkY = 640;
-              bool atkHold = false;
-              bool joyActive = false;
-              float atkPress = 0;
-          };
           EOF
 
       - name: Create Java Activity
@@ -235,6 +237,7 @@ jobs:
                   externalNativeBuild {
                       cmake {
                           arguments '-DANDROID_STL=c++_shared'
+                          cppFlags '-std=c++17'
                       }
                   }
               }
