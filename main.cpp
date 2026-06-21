@@ -1,6 +1,12 @@
-#include <SFML/Graphics.hpp>
+ #include <SFML/Graphics.hpp>
+#include <SFML/Window.hpp>
+#include <jni.h>
+#include <android/log.h>
 #include "lobby.hpp"
 #include "game.hpp"
+
+#define LOG_TAG "CubicBattle"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 enum GameState { STATE_LOBBY, STATE_GAME };
 GameState currentState = STATE_LOBBY;
@@ -8,7 +14,14 @@ GameState currentState = STATE_LOBBY;
 lobby::Lobby lobby;
 game::Game game;
 
-int main() {
+// ============================================================
+// JNI ФУНКЦИЯ ДЛЯ ЗАПУСКА ИГРЫ ИЗ JAVA
+// ============================================================
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeRun(JNIEnv* env, jobject obj, jobject surface) {
+    
+    // Создаём окно для Android
     sf::RenderWindow window(sf::VideoMode(1280, 720), "Cubic Battle 3");
     window.setFramerateLimit(60);
     
@@ -16,6 +29,7 @@ int main() {
     game.init(window);
     
     sf::Clock clock;
+    
     while (window.isOpen()) {
         float dt = clock.restart().asSeconds();
         if (dt > 0.05f) dt = 0.05f;
@@ -39,5 +53,4 @@ int main() {
         else game.draw(window);
         window.display();
     }
-    return 0;
 }
