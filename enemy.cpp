@@ -1,6 +1,11 @@
 #include "enemy.hpp"
+#include "game.hpp"
 #include <cmath>
-#include <SDL2/SDL_image.h>
+#include <chrono>
+#include <android/log.h>
+
+#define LOG_TAG "Enemy"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 namespace enemy {
 
@@ -8,12 +13,8 @@ Enemy::Enemy() : rng(std::chrono::steady_clock::now().time_since_epoch().count()
     reset();
 }
 
-void Enemy::init(SDL_Renderer* ren) {
-    SDL_Surface* surf = IMG_Load("assets/player.png");
-    if (surf) {
-        tex = SDL_CreateTextureFromSurface(ren, surf);
-        SDL_FreeSurface(surf);
-    }
+void Enemy::init() {
+    LOGI("Enemy initialized!");
 }
 
 void Enemy::reset() {
@@ -32,6 +33,7 @@ void Enemy::spawn(float px, float py) {
     alive = true;
     hp = MAX_HP;
     state = WANDER;
+    LOGI("Enemy spawned at (%f, %f)", x, y);
 }
 
 void Enemy::update(float dt, float px, float py, 
@@ -48,6 +50,7 @@ void Enemy::update(float dt, float px, float py,
     float dist = sqrt(dx*dx + dy*dy);
     if (dist > 0) { dx /= dist; dy /= dist; }
     
+    // AI
     if (dist < SIGHT) {
         if (dist > ATTACK_RANGE) state = CHASE;
         else if (dist < KEEP_DIST) state = RETREAT;
@@ -56,6 +59,7 @@ void Enemy::update(float dt, float px, float py,
         state = WANDER;
     }
     
+    // Движение
     if (state == CHASE) {
         x += dx * SPEED * dt;
         y += dy * SPEED * dt;
@@ -84,12 +88,34 @@ void Enemy::update(float dt, float px, float py,
     hitTimer = std::max(0.0f, hitTimer - dt * 3);
 }
 
-void Enemy::draw(SDL_Renderer* ren) {
-    if (!alive || !tex) return;
+void Enemy::draw() {
+    if (!alive) return;
     
-    SDL_Rect rect = {(int)(x - 27.5f), (int)(y - 27.5f), 55, 55};
-    SDL_RenderCopyEx(ren, tex, nullptr, &rect, 
-                     angle * 180 / 3.14159f, nullptr, SDL_FLIP_NONE);
+    // Рисуем врага (красный квадрат)
+    // Используем game::Game::drawRect или свой рендеринг
+    glUseProgram(0);
+    
+    float vertices[] = {
+        x-27.5f, y-27.5f,
+        x+27.5f, y-27.5f,
+        x+27.5f, y+27.5f,
+        x-27.5f, y+27.5f
+    };
+    
+    GLuint vbo;
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    
+    // Красный цвет
+    float color[] = {1.0f, 0.2f, 0.2f, 1.0f};
+    glVertexAttrib4fv(1, color);
+    
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glDeleteBuffers(1, &vbo);
 }
 
 } // namespace enemy
