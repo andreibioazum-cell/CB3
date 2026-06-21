@@ -1,4 +1,4 @@
-name: Build Cubic Battle 3
+name: Build Android APK
 
 on:
   push:
@@ -8,23 +8,116 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install SFML
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsfml-dev
-    
-    - name: Build
-      run: |
-        mkdir build && cd build
-        cmake ..
-        make -j$(nproc)
-    
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: CubicBattle3
-        path: build/CubicBattle3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34 ndk;25.2.9519653 cmake;3.22.1'
+
+      - name: Setup Project
+        run: |
+          mkdir -p app/src/main/cpp
+          mkdir -p app/src/main/java/com/cubicbattle
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/assets
+
+      - name: Copy C++ Source
+        run: |
+          cp *.cpp app/src/main/cpp/
+          cp *.hpp app/src/main/cpp/
+          cp CMakeLists.txt app/src/main/cpp/
+
+      - name: Create Android Files
+        run: |
+          cat > app/src/main/java/com/cubicbattle/GameActivity.java << 'EOF'
+          package com.cubicbattle;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.SurfaceView;
+          import android.view.SurfaceHolder;
+          
+          public class GameActivity extends Activity {
+              static { System.loadLibrary("cubicbattle"); }
+              
+              public native void nativeRun();
+              
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  
+                  SurfaceView sv = new SurfaceView(this);
+                  sv.getHolder().addCallback(new SurfaceHolder.Callback() {
+                      @Override public void surfaceCreated(SurfaceHolder holder) {
+                          nativeRun();
+                      }
+                      @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
+                      @Override public void surfaceDestroyed(SurfaceHolder holder) {}
+                  });
+                  setContentView(sv);
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.cubicbattle">
+              <application android:label="Cubic Battle 3" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+                  <activity android:name=".GameActivity" android:exported="true" android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Create Gradle
+        run: |
+          cat > build.gradle << 'EOF'
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          echo "include ':app'" > settings.gradle
+          
+          cat > app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.cubicbattle'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.cubicbattle.game"
+                  minSdk 26
+                  targetSdk 34
+                  ndk { abiFilters 'arm64-v8a' }
+              }
+              externalNativeBuild {
+                  cmake { path "src/main/cpp/CMakeLists.txt" }
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          export PATH="$PWD/gradle-8.5/bin:$PATH"
+          gradle wrapper --gradle-version 8.5
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CubicBattle3-Android
+          path: app/build/outputs/apk/debug/app-debug.apk
