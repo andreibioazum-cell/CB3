@@ -6,6 +6,7 @@
 
 #define LOG_TAG "Enemy"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace enemy {
 
@@ -91,8 +92,7 @@ void Enemy::update(float dt, float px, float py,
 void Enemy::draw() {
     if (!alive) return;
     
-    // Рисуем врага (красный квадрат)
-    // Используем game::Game::drawRect или свой рендеринг
+    // Рисуем врага красным квадратом
     glUseProgram(0);
     
     float vertices[] = {
