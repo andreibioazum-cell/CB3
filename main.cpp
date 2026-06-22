@@ -4,9 +4,6 @@
 #include <android/native_window_jni.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
-#include <string>
-#include "lobby.hpp"
-#include "game.hpp"
 
 #define LOG_TAG "CubicBattle"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -15,34 +12,45 @@
 EGLDisplay display = EGL_NO_DISPLAY;
 EGLSurface surface = EGL_NO_SURFACE;
 EGLContext context = EGL_NO_CONTEXT;
-ANativeWindow* nativeWindow = nullptr;
 
-lobby::Lobby lobbyInstance;
-game::Game gameInstance;
+// ============================================================
+// ПРОСТЕЙШИЙ ШЕЙДЕР
+// ============================================================
+const char* vertexShader = 
+    "attribute vec2 aPos;"
+    "void main() {"
+    "   gl_Position = vec4(aPos, 0.0, 1.0);"
+    "}";
 
-enum GameState { STATE_LOBBY, STATE_GAME };
-GameState currentState = STATE_LOBBY;
+const char* fragmentShader = 
+    "precision highp float;"
+    "void main() {"
+    "   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);"  // ЗЕЛЁНЫЙ!
+    "}";
 
+GLuint program = 0;
+GLuint vbo = 0;
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ OPENGL
+// ============================================================
 bool initOpenGL(ANativeWindow* window) {
-    LOGI("initOpenGL: Starting...");
+    LOGI("=== initOpenGL START ===");
     
-    nativeWindow = window;
-    
-    // Получаем дисплей
     display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY) {
-        LOGE("initOpenGL: Failed to get display!");
+        LOGE("eglGetDisplay failed!");
         return false;
     }
+    LOGI("eglGetDisplay OK");
     
     EGLint major, minor;
     if (!eglInitialize(display, &major, &minor)) {
-        LOGE("initOpenGL: Failed to initialize EGL!");
+        LOGE("eglInitialize failed!");
         return false;
     }
-    LOGI("initOpenGL: EGL initialized, version %d.%d", major, minor);
+    LOGI("eglInitialize OK, version %d.%d", major, minor);
     
-    // Конфигурация
     EGLint attribs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
         EGL_BLUE_SIZE, 8,
@@ -55,12 +63,11 @@ bool initOpenGL(ANativeWindow* window) {
     EGLConfig config;
     EGLint numConfigs;
     if (!eglChooseConfig(display, attribs, &config, 1, &numConfigs)) {
-        LOGE("initOpenGL: Failed to choose config!");
+        LOGE("eglChooseConfig failed!");
         return false;
     }
-    LOGI("initOpenGL: Config chosen, numConfigs: %d", numConfigs);
+    LOGI("eglChooseConfig OK, numConfigs: %d", numConfigs);
     
-    // Контекст
     EGLint contextAttribs[] = {
         EGL_CONTEXT_CLIENT_VERSION, 2,
         EGL_NONE
@@ -68,118 +75,181 @@ bool initOpenGL(ANativeWindow* window) {
     
     context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
     if (context == EGL_NO_CONTEXT) {
-        LOGE("initOpenGL: Failed to create context!");
+        LOGE("eglCreateContext failed!");
         return false;
     }
+    LOGI("eglCreateContext OK");
     
-    // Поверхность
     surface = eglCreateWindowSurface(display, config, window, nullptr);
     if (surface == EGL_NO_SURFACE) {
-        LOGE("initOpenGL: Failed to create surface!");
+        LOGE("eglCreateWindowSurface failed!");
         return false;
     }
+    LOGI("eglCreateWindowSurface OK");
     
-    // Делаем контекст текущим
     if (!eglMakeCurrent(display, surface, surface, context)) {
-        LOGE("initOpenGL: Failed to make current!");
+        LOGE("eglMakeCurrent failed!");
         return false;
     }
+    LOGI("eglMakeCurrent OK");
     
-    LOGI("initOpenGL: OpenGL ES 2.0 initialized successfully!");
+    const char* version = (const char*)glGetString(GL_VERSION);
+    LOGI("OpenGL Version: %s", version ? version : "unknown");
+    
+    LOGI("=== initOpenGL SUCCESS ===");
     return true;
 }
 
+// ============================================================
+// СОЗДАНИЕ ШЕЙДЕРОВ
+// ============================================================
+bool createShaders() {
+    LOGI("=== createShaders START ===");
+    
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vertexShader, nullptr);
+    glCompileShader(vs);
+    
+    GLint compiled;
+    glGetShaderiv(vs, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        LOGE("Vertex shader compile failed!");
+        char log[512];
+        glGetShaderInfoLog(vs, 512, nullptr, log);
+        LOGE("Log: %s", log);
+        return false;
+    }
+    LOGI("Vertex shader compiled");
+    
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fragmentShader, nullptr);
+    glCompileShader(fs);
+    
+    glGetShaderiv(fs, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        LOGE("Fragment shader compile failed!");
+        char log[512];
+        glGetShaderInfoLog(fs, 512, nullptr, log);
+        LOGE("Log: %s", log);
+        return false;
+    }
+    LOGI("Fragment shader compiled");
+    
+    program = glCreateProgram();
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    glLinkProgram(program);
+    
+    GLint linked;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        LOGE("Program link failed!");
+        char log[512];
+        glGetProgramInfoLog(program, 512, nullptr, log);
+        LOGE("Log: %s", log);
+        return false;
+    }
+    LOGI("Program linked");
+    
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    
+    LOGI("=== createShaders SUCCESS ===");
+    return true;
+}
+
+// ============================================================
+// СОЗДАНИЕ КВАДРАТА
+// ============================================================
+void createQuad() {
+    float vertices[] = {
+        -0.5f, -0.5f,
+         0.5f, -0.5f,
+         0.5f,  0.5f,
+        -0.5f,  0.5f
+    };
+    
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    LOGI("Quad created");
+}
+
+// ============================================================
+// JNI ФУНКЦИИ
+// ============================================================
 extern "C" JNIEXPORT void JNICALL
 Java_com_cubicbattle_GameActivity_nativeInit(JNIEnv* env, jobject obj, jobject surface) {
-    LOGI("nativeInit: Called!");
+    LOGI("=== nativeInit START ===");
     
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
     if (window == nullptr) {
-        LOGE("nativeInit: Failed to get native window!");
+        LOGE("ANativeWindow_fromSurface failed!");
         return;
     }
+    LOGI("ANativeWindow OK");
     
     if (!initOpenGL(window)) {
-        LOGE("nativeInit: Failed to init OpenGL!");
+        LOGE("initOpenGL FAILED!");
         return;
     }
     
-    // Проверяем OpenGL
-    const char* version = (const char*)glGetString(GL_VERSION);
-    LOGI("nativeInit: OpenGL Version: %s", version ? version : "unknown");
+    if (!createShaders()) {
+        LOGE("createShaders FAILED!");
+        return;
+    }
     
-    // Инициализируем лобби и игру
-    lobbyInstance.init();
-    gameInstance.init();
+    createQuad();
     
-    LOGI("nativeInit: Complete!");
+    LOGI("=== nativeInit SUCCESS ===");
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_cubicbattle_GameActivity_nativeUpdate(JNIEnv* env, jobject obj, jfloat dt) {
-    if (currentState == STATE_LOBBY) {
-        if (lobbyInstance.update(dt)) {
-            LOGI("nativeUpdate: Switching to GAME state!");
-            currentState = STATE_GAME;
-        }
-    } else {
-        gameInstance.update(dt);
-        if (gameInstance.isBackToLobby()) {
-            LOGI("nativeUpdate: Switching to LOBBY state!");
-            currentState = STATE_LOBBY;
-            gameInstance.reset();
-        }
-    }
+    // Ничего не делаем
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_cubicbattle_GameActivity_nativeDraw(JNIEnv* env, jobject obj) {
     // Проверяем контекст
-    if (display == EGL_NO_DISPLAY || surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT) {
+    if (display == EGL_NO_DISPLAY || surface == EGL_NO_SURFACE) {
         LOGE("nativeDraw: EGL not initialized!");
         return;
     }
     
-    // Делаем контекст текущим (на всякий случай)
+    // Делаем контекст текущим
     if (!eglMakeCurrent(display, surface, surface, context)) {
-        LOGE("nativeDraw: Failed to make current!");
+        LOGE("nativeDraw: eglMakeCurrent failed!");
         return;
     }
     
-    // Очищаем экран КРАСНЫМ для отладки (чтобы видеть, что рендеринг работает)
-    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);  // Красный - тестовый цвет
+    // Очищаем экран КРАСНЫМ (чтобы видеть, что хоть что-то работает)
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     
-    // Рисуем
-    if (currentState == STATE_LOBBY) {
-        lobbyInstance.draw();
+    // Рисуем зелёный квадрат
+    if (program != 0 && vbo != 0) {
+        glUseProgram(program);
+        
+        GLint posLoc = glGetAttribLocation(program, "aPos");
+        glEnableVertexAttribArray(posLoc);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+        
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+        
+        LOGI("nativeDraw: Square drawn!");
     } else {
-        gameInstance.draw();
+        LOGE("nativeDraw: program=%d, vbo=%d", program, vbo);
     }
     
     // Меняем буферы
     if (!eglSwapBuffers(display, surface)) {
-        LOGE("nativeDraw: Failed to swap buffers!");
+        LOGE("nativeDraw: eglSwapBuffers failed!");
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_cubicbattle_GameActivity_nativeTouch(JNIEnv* env, jobject obj, jfloat x, jfloat y, jboolean pressed) {
-    LOGI("nativeTouch: x=%.1f, y=%.1f, pressed=%d", x, y, pressed);
-    
-    if (currentState == STATE_LOBBY) {
-        lobbyInstance.handleTouch(x, y);
-    } else {
-        gameInstance.handleTouch(x, y, pressed);
-    }
-}
-
-// ============================================================
-// ОТЛАДОЧНЫЕ ФУНКЦИИ (можно вызвать из Java для проверки)
-// ============================================================
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_cubicbattle_GameActivity_nativeGetGLVersion(JNIEnv* env, jobject obj) {
-    const char* version = (const char*)glGetString(GL_VERSION);
-    return env->NewStringUTF(version ? version : "No OpenGL context");
+    LOGI("Touch: x=%.1f y=%.1f pressed=%d", x, y, pressed);
 }
