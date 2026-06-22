@@ -4,10 +4,10 @@
 
 #define LOG_TAG "Game"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace game {
 
-// Шейдеры (такие же как в lobby)
 const char* vertexShader = 
     "attribute vec3 aPos;"
     "uniform mat4 uTransform;"
@@ -26,6 +26,8 @@ const char* fragmentShader =
     "}";
 
 void Game::createShaderProgram() {
+    LOGI("createShaderProgram: Creating...");
+    
     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vs, 1, &vertexShader, nullptr);
     glCompileShader(vs);
@@ -41,16 +43,20 @@ void Game::createShaderProgram() {
     
     glDeleteShader(vs);
     glDeleteShader(fs);
+    
+    LOGI("createShaderProgram: Done!");
 }
 
 void Game::init() {
+    LOGI("init: Starting...");
     createShaderProgram();
     enemy.init();
     reset();
-    LOGI("Game initialized!");
+    LOGI("init: Done!");
 }
 
 void Game::reset() {
+    LOGI("reset: Resetting game state");
     playerX = 640; playerY = 360;
     playerAngle = 0;
     hp = PLAYER_HP_MAX;
@@ -111,6 +117,11 @@ void Game::update(float dt) {
 }
 
 void Game::drawRect(float x, float y, float w, float h, float r, float g, float b) {
+    if (program == 0) {
+        LOGE("drawRect: Program not initialized!");
+        return;
+    }
+    
     glUseProgram(program);
     
     float ortho[16] = {
@@ -121,9 +132,17 @@ void Game::drawRect(float x, float y, float w, float h, float r, float g, float 
     };
     
     GLint transformLoc = glGetUniformLocation(program, "uTransform");
+    if (transformLoc < 0) {
+        LOGE("drawRect: uTransform not found!");
+        return;
+    }
     glUniformMatrix4fv(transformLoc, 1, GL_FALSE, ortho);
     
     GLint colorLoc = glGetUniformLocation(program, "uColor");
+    if (colorLoc < 0) {
+        LOGE("drawRect: uColor not found!");
+        return;
+    }
     glUniform4f(colorLoc, r, g, b, 1.0f);
     
     float vertices[] = {
@@ -139,6 +158,12 @@ void Game::drawRect(float x, float y, float w, float h, float r, float g, float 
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     
     GLint posLoc = glGetAttribLocation(program, "aPos");
+    if (posLoc < 0) {
+        LOGE("drawRect: aPos not found!");
+        glDeleteBuffers(1, &vbo);
+        return;
+    }
+    
     glEnableVertexAttribArray(posLoc);
     glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
     
@@ -148,13 +173,16 @@ void Game::drawRect(float x, float y, float w, float h, float r, float g, float 
 }
 
 void Game::draw() {
-    glClearColor(0.1f, 0.05f, 0.2f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    // Проверяем OpenGL контекст
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOGE("draw: OpenGL error before drawing: 0x%x", error);
+    }
     
-    // Рисуем игрока (синий квадрат)
+    // Рисуем игрока (зелёный квадрат)
     drawRect(playerX - camX, playerY - camY, 55, 55, 0.3f, 0.85f, 0.35f);
     
-    // Рисуем врага
+    // Рисуем врага (у него свой метод)
     enemy.draw();
     
     // HP бар
@@ -162,28 +190,33 @@ void Game::draw() {
 }
 
 void Game::drawHPBar(float x, float y, float w, float h, int hp, int max) {
-    // Фон
+    // Фон (чёрный)
     drawRect(x + w/2, y + h/2, w, h, 0.0f, 0.0f, 0.0f);
-    // HP
+    // HP (зелёный)
     drawRect(x + w/2 - (w/2)*(1 - (float)hp/max), y + h/2, 
              w * (float)hp/max, h, 0.3f, 0.85f, 0.35f);
 }
 
 void Game::handleTouch(float x, float y, bool pressed) {
+    LOGI("handleTouch: x=%.1f, y=%.1f, pressed=%d", x, y, pressed);
+    
     if (pressed) {
         // Джойстик
         if (abs(x - controls.joyX) < 45 && abs(y - controls.joyY) < 45) {
             controls.joyActive = true;
             controls.joyStickX = x;
             controls.joyStickY = y;
+            LOGI("handleTouch: Joystick activated!");
         }
         // Атака
         if (abs(x - controls.atkX) < 52 && abs(y - controls.atkY) < 52) {
             controls.atkHold = true;
+            LOGI("handleTouch: Attack button pressed!");
         }
         // Back
         if (x > 20 && x < 160 && y > 20 && y < 75) {
             backToLobby = true;
+            LOGI("handleTouch: Back to lobby!");
         }
     } else {
         if (controls.atkHold) {
@@ -193,7 +226,9 @@ void Game::handleTouch(float x, float y, bool pressed) {
             b.x = playerX; b.y = playerY;
             b.vx = aimX * BULLET_SPEED;
             b.vy = aimY * BULLET_SPEED;
+            b.life = 3.0f;
             bullets.push_back(b);
+            LOGI("handleTouch: Bullet fired! (%.1f, %.1f)", b.vx, b.vy);
         }
         controls.joyActive = false;
         controls.joyStickX = controls.joyX;
