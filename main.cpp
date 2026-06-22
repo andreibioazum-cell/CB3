@@ -3,7 +3,7 @@
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 #include <EGL/egl.h>
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>  // <-- OpenGL ES 3.0!
 
 #define LOG_TAG "CubicBattle"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -14,28 +14,32 @@ EGLSurface surface = EGL_NO_SURFACE;
 EGLContext context = EGL_NO_CONTEXT;
 
 // ============================================================
-// ПРОСТЕЙШИЙ ШЕЙДЕР
+// ШЕЙДЕРЫ ДЛЯ OpenGL ES 3.0
 // ============================================================
 const char* vertexShader = 
-    "attribute vec2 aPos;"
-    "void main() {"
-    "   gl_Position = vec4(aPos, 0.0, 1.0);"
+    "#version 300 es\n"
+    "in vec2 aPos;\n"
+    "void main() {\n"
+    "   gl_Position = vec4(aPos, 0.0, 1.0);\n"
     "}";
 
 const char* fragmentShader = 
-    "precision highp float;"
-    "void main() {"
-    "   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);"  // ЗЕЛЁНЫЙ!
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "out vec4 FragColor;\n"
+    "void main() {\n"
+    "   FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"  // ЗЕЛЁНЫЙ!
     "}";
 
 GLuint program = 0;
 GLuint vbo = 0;
+GLuint vao = 0;  // Для OpenGL 3.0 нужен VAO
 
 // ============================================================
-// ИНИЦИАЛИЗАЦИЯ OPENGL
+// ИНИЦИАЛИЗАЦИЯ OPENGL ES 3.0
 // ============================================================
 bool initOpenGL(ANativeWindow* window) {
-    LOGI("=== initOpenGL START ===");
+    LOGI("=== initOpenGL ES 3.0 START ===");
     
     display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY) {
@@ -51,8 +55,9 @@ bool initOpenGL(ANativeWindow* window) {
     }
     LOGI("eglInitialize OK, version %d.%d", major, minor);
     
+    // Запрашиваем OpenGL ES 3.0
     EGLint attribs[] = {
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,  // <-- ES 3.0!
         EGL_BLUE_SIZE, 8,
         EGL_GREEN_SIZE, 8,
         EGL_RED_SIZE, 8,
@@ -68,8 +73,9 @@ bool initOpenGL(ANativeWindow* window) {
     }
     LOGI("eglChooseConfig OK, numConfigs: %d", numConfigs);
     
+    // Контекст для OpenGL ES 3.0
     EGLint contextAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_CONTEXT_CLIENT_VERSION, 3,  // <-- Версия 3!
         EGL_NONE
     };
     
@@ -96,12 +102,17 @@ bool initOpenGL(ANativeWindow* window) {
     const char* version = (const char*)glGetString(GL_VERSION);
     LOGI("OpenGL Version: %s", version ? version : "unknown");
     
+    // Проверяем, что это ES 3.0
+    if (version && strstr(version, "OpenGL ES 3.") == nullptr) {
+        LOGE("WARNING: Not OpenGL ES 3.0! Version: %s", version);
+    }
+    
     LOGI("=== initOpenGL SUCCESS ===");
     return true;
 }
 
 // ============================================================
-// СОЗДАНИЕ ШЕЙДЕРОВ
+// СОЗДАНИЕ ШЕЙДЕРОВ (ES 3.0)
 // ============================================================
 bool createShaders() {
     LOGI("=== createShaders START ===");
@@ -159,9 +170,15 @@ bool createShaders() {
 }
 
 // ============================================================
-// СОЗДАНИЕ КВАДРАТА
+// СОЗДАНИЕ КВАДРАТА (с VAO для ES 3.0)
 // ============================================================
 void createQuad() {
+    LOGI("=== createQuad START ===");
+    
+    // В OpenGL ES 3.0 нужно использовать VAO
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+    
     float vertices[] = {
         -0.5f, -0.5f,
          0.5f, -0.5f,
@@ -172,7 +189,14 @@ void createQuad() {
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    LOGI("Quad created");
+    
+    GLint posLoc = glGetAttribLocation(program, "aPos");
+    glEnableVertexAttribArray(posLoc);
+    glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    
+    glBindVertexArray(0);
+    
+    LOGI("createQuad OK, VAO=%d, VBO=%d", vao, vbo);
 }
 
 // ============================================================
@@ -223,24 +247,23 @@ Java_com_cubicbattle_GameActivity_nativeDraw(JNIEnv* env, jobject obj) {
         return;
     }
     
-    // Очищаем экран КРАСНЫМ (чтобы видеть, что хоть что-то работает)
-    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    // Очищаем экран СИНИМ (чтобы видеть, что хоть что-то работает)
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);  // СИНИЙ фон
     glClear(GL_COLOR_BUFFER_BIT);
     
     // Рисуем зелёный квадрат
-    if (program != 0 && vbo != 0) {
+    if (program != 0 && vao != 0) {
         glUseProgram(program);
-        
-        GLint posLoc = glGetAttribLocation(program, "aPos");
-        glEnableVertexAttribArray(posLoc);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
-        
+        glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
         
-        LOGI("nativeDraw: Square drawn!");
+        // Проверяем ошибки
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR) {
+            LOGE("OpenGL error: 0x%x", error);
+        }
     } else {
-        LOGE("nativeDraw: program=%d, vbo=%d", program, vbo);
+        LOGE("nativeDraw: program=%d, vao=%d", program, vao);
     }
     
     // Меняем буферы
