@@ -1,408 +1,185 @@
-name: Build Android APK
+#include <jni.h>
+#include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
+#include <string>
+#include "lobby.hpp"
+#include "game.hpp"
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+#define LOG_TAG "CubicBattle"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+EGLDisplay display = EGL_NO_DISPLAY;
+EGLSurface surface = EGL_NO_SURFACE;
+EGLContext context = EGL_NO_CONTEXT;
+ANativeWindow* nativeWindow = nullptr;
+
+lobby::Lobby lobbyInstance;
+game::Game gameInstance;
+
+enum GameState { STATE_LOBBY, STATE_GAME };
+GameState currentState = STATE_LOBBY;
+
+bool initOpenGL(ANativeWindow* window) {
+    LOGI("initOpenGL: Starting...");
     
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    nativeWindow = window;
+    
+    // Получаем дисплей
+    display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (display == EGL_NO_DISPLAY) {
+        LOGE("initOpenGL: Failed to get display!");
+        return false;
+    }
+    
+    EGLint major, minor;
+    if (!eglInitialize(display, &major, &minor)) {
+        LOGE("initOpenGL: Failed to initialize EGL!");
+        return false;
+    }
+    LOGI("initOpenGL: EGL initialized, version %d.%d", major, minor);
+    
+    // Конфигурация
+    EGLint attribs[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_BLUE_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_RED_SIZE, 8,
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_NONE
+    };
+    
+    EGLConfig config;
+    EGLint numConfigs;
+    if (!eglChooseConfig(display, attribs, &config, 1, &numConfigs)) {
+        LOGE("initOpenGL: Failed to choose config!");
+        return false;
+    }
+    LOGI("initOpenGL: Config chosen, numConfigs: %d", numConfigs);
+    
+    // Контекст
+    EGLint contextAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_NONE
+    };
+    
+    context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
+    if (context == EGL_NO_CONTEXT) {
+        LOGE("initOpenGL: Failed to create context!");
+        return false;
+    }
+    
+    // Поверхность
+    surface = eglCreateWindowSurface(display, config, window, nullptr);
+    if (surface == EGL_NO_SURFACE) {
+        LOGE("initOpenGL: Failed to create surface!");
+        return false;
+    }
+    
+    // Делаем контекст текущим
+    if (!eglMakeCurrent(display, surface, surface, context)) {
+        LOGE("initOpenGL: Failed to make current!");
+        return false;
+    }
+    
+    LOGI("initOpenGL: OpenGL ES 2.0 initialized successfully!");
+    return true;
+}
 
-      - name: Setup Android SDK manually
-        run: |
-          # Скачиваем command line tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-          unzip -q commandlinetools-linux-9477386_latest.zip
-          mkdir -p android-sdk/cmdline-tools
-          mv cmdline-tools android-sdk/cmdline-tools/latest
-          
-          # Устанавливаем переменные
-          export ANDROID_SDK_ROOT=$PWD/android-sdk
-          export ANDROID_HOME=$PWD/android-sdk
-          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
-          
-          # Устанавливаем SDK и NDK
-          yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653" "cmake;3.22.1"
-          
-          # Сохраняем пути для следующих шагов
-          echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$PWD/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$PWD/android-sdk/ndk/25.2.9519653" >> $GITHUB_ENV
-          echo "PATH=$PATH:$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_ENV
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeInit(JNIEnv* env, jobject obj, jobject surface) {
+    LOGI("nativeInit: Called!");
+    
+    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+    if (window == nullptr) {
+        LOGE("nativeInit: Failed to get native window!");
+        return;
+    }
+    
+    if (!initOpenGL(window)) {
+        LOGE("nativeInit: Failed to init OpenGL!");
+        return;
+    }
+    
+    // Проверяем OpenGL
+    const char* version = (const char*)glGetString(GL_VERSION);
+    LOGI("nativeInit: OpenGL Version: %s", version ? version : "unknown");
+    
+    // Инициализируем лобби и игру
+    lobbyInstance.init();
+    gameInstance.init();
+    
+    LOGI("nativeInit: Complete!");
+}
 
-      - name: Setup Project
-        run: |
-          mkdir -p app/src/main/cpp
-          mkdir -p app/src/main/java/com/cubicbattle
-          
-          # Копируем все .cpp и .hpp
-          cp *.cpp app/src/main/cpp/ || true
-          cp *.hpp app/src/main/cpp/ || true
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeUpdate(JNIEnv* env, jobject obj, jfloat dt) {
+    if (currentState == STATE_LOBBY) {
+        if (lobbyInstance.update(dt)) {
+            LOGI("nativeUpdate: Switching to GAME state!");
+            currentState = STATE_GAME;
+        }
+    } else {
+        gameInstance.update(dt);
+        if (gameInstance.isBackToLobby()) {
+            LOGI("nativeUpdate: Switching to LOBBY state!");
+            currentState = STATE_LOBBY;
+            gameInstance.reset();
+        }
+    }
+}
 
-      - name: Fix main.cpp - rename game variable
-        run: |
-          cat > app/src/main/cpp/main.cpp << 'EOF'
-          #include <jni.h>
-          #include <android/log.h>
-          #include <android/native_window.h>
-          #include <android/native_window_jni.h>
-          #include <EGL/egl.h>
-          #include <GLES2/gl2.h>
-          #include <string>
-          #include "lobby.hpp"
-          #include "game.hpp"
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeDraw(JNIEnv* env, jobject obj) {
+    // Проверяем контекст
+    if (display == EGL_NO_DISPLAY || surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT) {
+        LOGE("nativeDraw: EGL not initialized!");
+        return;
+    }
+    
+    // Делаем контекст текущим (на всякий случай)
+    if (!eglMakeCurrent(display, surface, surface, context)) {
+        LOGE("nativeDraw: Failed to make current!");
+        return;
+    }
+    
+    // Очищаем экран КРАСНЫМ для отладки (чтобы видеть, что рендеринг работает)
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);  // Красный - тестовый цвет
+    glClear(GL_COLOR_BUFFER_BIT);
+    
+    // Рисуем
+    if (currentState == STATE_LOBBY) {
+        lobbyInstance.draw();
+    } else {
+        gameInstance.draw();
+    }
+    
+    // Меняем буферы
+    if (!eglSwapBuffers(display, surface)) {
+        LOGE("nativeDraw: Failed to swap buffers!");
+    }
+}
 
-          #define LOG_TAG "CubicBattle"
-          #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+extern "C" JNIEXPORT void JNICALL
+Java_com_cubicbattle_GameActivity_nativeTouch(JNIEnv* env, jobject obj, jfloat x, jfloat y, jboolean pressed) {
+    LOGI("nativeTouch: x=%.1f, y=%.1f, pressed=%d", x, y, pressed);
+    
+    if (currentState == STATE_LOBBY) {
+        lobbyInstance.handleTouch(x, y);
+    } else {
+        gameInstance.handleTouch(x, y, pressed);
+    }
+}
 
-          // ============================================================
-          // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
-          // ============================================================
+// ============================================================
+// ОТЛАДОЧНЫЕ ФУНКЦИИ (можно вызвать из Java для проверки)
+// ============================================================
 
-          EGLDisplay display = EGL_NO_DISPLAY;
-          EGLSurface surface = EGL_NO_SURFACE;
-          EGLContext context = EGL_NO_CONTEXT;
-          ANativeWindow* nativeWindow = nullptr;
-
-          lobby::Lobby lobbyInstance;
-          game::Game gameInstance;
-
-          enum GameState { STATE_LOBBY, STATE_GAME };
-          GameState currentState = STATE_LOBBY;
-
-          // ============================================================
-          // OPENGL INIT
-          // ============================================================
-
-          bool initOpenGL(ANativeWindow* window) {
-              nativeWindow = window;
-              
-              display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-              if (display == EGL_NO_DISPLAY) return false;
-              
-              EGLint major, minor;
-              if (!eglInitialize(display, &major, &minor)) return false;
-              
-              EGLint attribs[] = {
-                  EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                  EGL_BLUE_SIZE, 8,
-                  EGL_GREEN_SIZE, 8,
-                  EGL_RED_SIZE, 8,
-                  EGL_NONE
-              };
-              
-              EGLConfig config;
-              EGLint numConfigs;
-              if (!eglChooseConfig(display, attribs, &config, 1, &numConfigs)) return false;
-              
-              EGLint contextAttribs[] = {
-                  EGL_CONTEXT_CLIENT_VERSION, 2,
-                  EGL_NONE
-              };
-              
-              context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
-              if (context == EGL_NO_CONTEXT) return false;
-              
-              surface = eglCreateWindowSurface(display, config, window, nullptr);
-              if (surface == EGL_NO_SURFACE) return false;
-              
-              if (!eglMakeCurrent(display, surface, surface, context)) return false;
-              
-              LOGI("OpenGL ES 2.0 initialized!");
-              return true;
-          }
-
-          // ============================================================
-          // JNI ФУНКЦИИ
-          // ============================================================
-
-          extern "C" JNIEXPORT void JNICALL
-          Java_com_cubicbattle_GameActivity_nativeInit(JNIEnv* env, jobject obj, jobject surface) {
-              ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
-              
-              if (!initOpenGL(window)) {
-                  LOGI("Failed to init OpenGL!");
-                  return;
-              }
-              
-              lobbyInstance.init();
-              gameInstance.init();
-          }
-
-          extern "C" JNIEXPORT void JNICALL
-          Java_com_cubicbattle_GameActivity_nativeUpdate(JNIEnv* env, jobject obj, jfloat dt) {
-              if (currentState == STATE_LOBBY) {
-                  if (lobbyInstance.update(dt)) currentState = STATE_GAME;
-              } else {
-                  gameInstance.update(dt);
-                  if (gameInstance.isBackToLobby()) currentState = STATE_LOBBY;
-              }
-          }
-
-          extern "C" JNIEXPORT void JNICALL
-          Java_com_cubicbattle_GameActivity_nativeDraw(JNIEnv* env, jobject obj) {
-              glClearColor(0.1f, 0.05f, 0.2f, 1.0f);
-              glClear(GL_COLOR_BUFFER_BIT);
-              
-              if (currentState == STATE_LOBBY) {
-                  lobbyInstance.draw();
-              } else {
-                  gameInstance.draw();
-              }
-              
-              eglSwapBuffers(display, surface);
-          }
-
-          extern "C" JNIEXPORT void JNICALL
-          Java_com_cubicbattle_GameActivity_nativeTouch(JNIEnv* env, jobject obj, jfloat x, jfloat y, jboolean pressed) {
-              if (currentState == STATE_LOBBY) {
-                  lobbyInstance.handleTouch(x, y);
-              } else {
-                  gameInstance.handleTouch(x, y, pressed);
-              }
-          }
-          EOF
-
-      - name: Create CMakeLists.txt
-        run: |
-          cat > app/src/main/cpp/CMakeLists.txt << 'EOF'
-          cmake_minimum_required(VERSION 3.22)
-          project(CubicBattle)
-          
-          set(CMAKE_CXX_STANDARD 17)
-          set(CMAKE_CXX_STANDARD_REQUIRED ON)
-          
-          # Основная библиотека
-          add_library(cubicbattle SHARED
-              main.cpp
-              lobby.cpp
-              game.cpp
-              enemy.cpp
-          )
-          
-          target_include_directories(cubicbattle PRIVATE
-              ${CMAKE_CURRENT_SOURCE_DIR}
-          )
-          
-          target_link_libraries(cubicbattle
-              log
-              android
-              EGL
-              GLESv2
-          )
-          EOF
-
-      - name: Create Java Activity
-        run: |
-          cat > app/src/main/java/com/cubicbattle/GameActivity.java << 'EOF'
-          package com.cubicbattle;
-          
-          import android.app.Activity;
-          import android.os.Bundle;
-          import android.view.SurfaceView;
-          import android.view.SurfaceHolder;
-          import android.view.MotionEvent;
-          
-          public class GameActivity extends Activity implements SurfaceHolder.Callback {
-              private SurfaceView surfaceView;
-              private boolean running = false;
-              private Thread gameThread;
-              
-              static {
-                  System.loadLibrary("cubicbattle");
-              }
-              
-              public native void nativeInit(Object surface);
-              public native void nativeUpdate(float dt);
-              public native void nativeDraw();
-              public native void nativeTouch(float x, float y, boolean pressed);
-              
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  surfaceView = new SurfaceView(this);
-                  surfaceView.getHolder().addCallback(this);
-                  setContentView(surfaceView);
-              }
-              
-              @Override
-              public void surfaceCreated(SurfaceHolder holder) {
-                  running = true;
-                  nativeInit(holder.getSurface());
-                  
-                  gameThread = new Thread(() -> {
-                      long lastTime = System.nanoTime();
-                      while (running) {
-                          long now = System.nanoTime();
-                          float dt = (now - lastTime) / 1000000000.0f;
-                          lastTime = now;
-                          
-                          if (dt > 0.05f) dt = 0.05f;
-                          
-                          nativeUpdate(dt);
-                          nativeDraw();
-                          
-                          try {
-                              Thread.sleep(16);
-                          } catch (InterruptedException e) {}
-                      }
-                  });
-                  gameThread.start();
-              }
-              
-              @Override
-              public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
-              
-              @Override
-              public void surfaceDestroyed(SurfaceHolder holder) {
-                  running = false;
-                  if (gameThread != null) {
-                      try {
-                          gameThread.join();
-                      } catch (InterruptedException e) {}
-                  }
-              }
-              
-              @Override
-              public boolean onTouchEvent(MotionEvent event) {
-                  float x = event.getX();
-                  float y = event.getY();
-                  
-                  int action = event.getActionMasked();
-                  if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
-                      nativeTouch(x, y, true);
-                  } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
-                      nativeTouch(x, y, false);
-                  } else if (action == MotionEvent.ACTION_MOVE) {
-                      // Обработка перемещения
-                  }
-                  
-                  return true;
-              }
-          }
-          EOF
-
-      - name: Create Android Manifest
-        run: |
-          cat > app/src/main/AndroidManifest.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="com.cubicbattle">
-              <uses-feature android:glEsVersion="0x00020000" android:required="true" />
-              <application 
-                  android:label="Cubic Battle 3" 
-                  android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
-                  android:allowBackup="true">
-                  <activity 
-                      android:name=".GameActivity" 
-                      android:exported="true" 
-                      android:screenOrientation="portrait"
-                      android:configChanges="orientation|screenSize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
-
-      - name: Create Gradle Files
-        run: |
-          cat > build.gradle << 'EOF'
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-              }
-          }
-          
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
-          
-          echo "include ':app'" > settings.gradle
-          
-          cat > app/build.gradle << 'EOF'
-          plugins {
-              id 'com.android.application'
-          }
-          
-          android {
-              namespace 'com.cubicbattle'
-              compileSdk 34
-              
-              defaultConfig {
-                  applicationId "com.cubicbattle.game"
-                  minSdk 26
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-                  
-                  ndk {
-                      abiFilters 'arm64-v8a'
-                  }
-                  
-                  externalNativeBuild {
-                      cmake {
-                          arguments '-DANDROID_STL=c++_shared'
-                          cppFlags '-std=c++17'
-                      }
-                  }
-              }
-              
-              externalNativeBuild {
-                  cmake {
-                      path "src/main/cpp/CMakeLists.txt"
-                      version "3.22.1"
-                  }
-              }
-              
-              buildTypes {
-                  debug {
-                      ndk {
-                          debugSymbolLevel 'full'
-                      }
-                  }
-                  release {
-                      minifyEnabled false
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
-                  }
-              }
-          }
-          EOF
-
-      - name: Build APK
-        run: |
-          # Скачиваем Gradle
-          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
-          unzip -q gradle-8.5-bin.zip
-          export PATH="$PWD/gradle-8.5/bin:$PATH"
-          
-          # Создаём wrapper
-          gradle wrapper --gradle-version 8.5
-          chmod +x gradlew
-          
-          # Собираем
-          ./gradlew assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: CubicBattle3-Android
-          path: app/build/outputs/apk/debug/*.apk
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_cubicbattle_GameActivity_nativeGetGLVersion(JNIEnv* env, jobject obj) {
+    const char* version = (const char*)glGetString(GL_VERSION);
+    return env->NewStringUTF(version ? version : "No OpenGL context");
+}
