@@ -1,9 +1,11 @@
 #include "lobby.hpp"
 #include <android/log.h>
 #include <cmath>
+#include <cstdlib>
 
 #define LOG_TAG "Lobby"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)  // <-- ДОБАВИТЬ ЭТУ СТРОКУ
 
 namespace lobby {
 
@@ -30,7 +32,6 @@ void Lobby::createShaderProgram() {
     glShaderSource(vs, 1, &vertexShader, nullptr);
     glCompileShader(vs);
     
-    // Проверяем ошибки
     GLint compiled;
     glGetShaderiv(vs, GL_COMPILE_STATUS, &compiled);
     if (!compiled) {
@@ -118,7 +119,6 @@ void Lobby::draw() {
     
     glUseProgram(program);
     
-    // Матрица трансформации (ортографическая проекция)
     float ortho[16] = {
         2.0f/1280, 0, 0, 0,
         0, -2.0f/720, 0, 0,
@@ -133,7 +133,6 @@ void Lobby::draw() {
     }
     glUniformMatrix4fv(transformLoc, 1, GL_FALSE, ortho);
     
-    // Цвет кнопки (фиолетовый)
     GLint colorLoc = glGetUniformLocation(program, "uColor");
     if (colorLoc < 0) {
         LOGE("draw: uColor location not found!");
@@ -141,7 +140,6 @@ void Lobby::draw() {
     }
     glUniform4f(colorLoc, 140.0f/255, 51.0f/255, 217.0f/255, 1.0f);
     
-    // Позиция и атрибуты
     GLint posLoc = glGetAttribLocation(program, "aPos");
     if (posLoc < 0) {
         LOGE("draw: aPos location not found!");
@@ -152,7 +150,6 @@ void Lobby::draw() {
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), 0);
     
-    // Рисуем кнопку
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     
     LOGI("draw: Button drawn!");
